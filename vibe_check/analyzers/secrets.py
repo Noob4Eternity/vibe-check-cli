@@ -36,6 +36,28 @@ _KNOWN_PATTERN_TYPES = frozenset({
     "PrivateKeyDetector",
 })
 
+# File patterns to ALWAYS exclude from secrets scanning.
+# These produce massive false positives (lock file hashes, placeholder keys, etc.)
+_SECRETS_EXCLUDE_PATTERNS = [
+    # Lock files — contain integrity hashes (SHA-512 base64), NOT secrets
+    r"pnpm-lock\.yaml$",
+    r"package-lock\.json$",
+    r"yarn\.lock$",
+    r"poetry\.lock$",
+    r"Pipfile\.lock$",
+    r"composer\.lock$",
+    # Template / example files — contain placeholder credentials
+    r"\.example$",
+    r"\.sample$",
+    r"\.template$",
+    r"\.env\.example$",
+    r"\.env\.sample$",
+    # Documentation — may reference key formats in examples
+    r"\.md$",
+    r"\.rst$",
+    r"\.txt$",
+]
+
 
 def _severity_for(secret_type: str) -> Severity:
     """Map a detect-secrets type to a severity level.
@@ -102,11 +124,20 @@ class SecretsAnalyzer(BaseAnalyzer):
         else:
             cmd = ["detect-secrets", "scan", "--all-files"]
 
-        # Always add the safety-net regex (Layer 2)
+        # Build the exclude regex: directory excludes + file-pattern excludes
+        import re
+        exclude_parts = []
+
+        # Add directory excludes from config
         if config and config.get("exclude"):
-            import re
             escaped = [re.escape(x.rstrip("/")) for x in config["exclude"]]
-            regex = "^" + "/|^".join(escaped) + "/"
+            exclude_parts.extend([f"^{e}/" for e in escaped])
+
+        # Always add file-pattern excludes (lock files, templates, docs)
+        exclude_parts.extend(_SECRETS_EXCLUDE_PATTERNS)
+
+        if exclude_parts:
+            regex = "|".join(exclude_parts)
             cmd.extend(["--exclude-files", regex])
 
         cmd.append(".")

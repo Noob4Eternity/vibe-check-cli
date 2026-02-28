@@ -175,6 +175,120 @@ llm:
 
 ---
 
+## GitHub Actions
+
+### Full Workflow (scan + PR comment + score gate)
+
+Create `.github/workflows/vibecheck.yml`:
+
+```yaml
+name: VibeCheck PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  vibecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install VibeCheck
+        run: pip install vibe-check-cli
+
+      - name: Run VibeCheck Scan
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: vibe-check scan . --format markdown > vibecheck-report.md
+        continue-on-error: true
+
+      - name: Post PR Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('vibecheck-report.md', 'utf8');
+            const body = report.length > 65000
+              ? report.substring(0, 65000) + '\n\n... (truncated)'
+              : report;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.body.includes('🔍 VibeCheck Report')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Check Score Threshold
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: vibe-check score . --exit-code --threshold 60
+```
+
+**What this does:**
+
+1. Runs a full scan on every PR to `main`
+2. Posts the report as a PR comment (updates existing comment on re-push)
+3. Fails the check if score drops below 60
+
+### Minimal Workflow (score gate only)
+
+```yaml
+name: VibeCheck
+
+on: [pull_request]
+
+jobs:
+  vibecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install vibe-check-cli
+      - run: vibe-check scan . --exit-code --threshold 70
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+```
+
+### Setup
+
+1. Go to your repo → **Settings** → **Secrets and variables** → **Actions**
+2. Add `GEMINI_API_KEY` as a repository secret
+3. Copy either workflow to `.github/workflows/vibecheck.yml`
+
+---
+
 ## What It Scans
 
 | Analyzer                | What it detects                           | Mode       |
