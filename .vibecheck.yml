@@ -1,0 +1,15 @@
+# VibeCheck Configuration
+# See https://github.com/vibe-check for docs
+
+mode: full
+threshold: 60
+severity_filter: []
+exclude:
+  - node_modules/
+  - .venv/
+  - __pycache__/
+
+# LLM settings (for compliance + prompt injection analysis)
+llm:
+  provider: openai  # openai or anthropic
+  token_budget: 5000

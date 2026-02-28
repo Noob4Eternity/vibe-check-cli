@@ -89,7 +89,16 @@ class SecretsAnalyzer(BaseAnalyzer):
         # ------------------------------------------------------------------
         # 2. Run detect-secrets scan as async subprocess
         # ------------------------------------------------------------------
-        cmd = ["detect-secrets", "scan", "--all-files", "."]
+        cmd = ["detect-secrets", "scan", "--all-files"]
+        
+        if config and config.get("exclude"):
+            import re
+            # detect-secrets requires a regex. e.g. "^node_modules/|^\.venv/"
+            escaped = [re.escape(x.rstrip("/")) for x in config["exclude"]]
+            regex = "^" + "/|^".join(escaped) + "/"
+            cmd.extend(["--exclude-files", regex])
+            
+        cmd.append(".")
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

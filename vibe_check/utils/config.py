@@ -13,7 +13,7 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
     "mode": "full",
     "threshold": 60,
     "severity_filter": [],
-    "exclude": ["node_modules/", ".venv/", "__pycache__/"],
+    "exclude": ["node_modules/", ".venv/", "venv/", "env/", "__pycache__/"],
     "llm": {
         "provider": "openai",
         "token_budget": 5000,

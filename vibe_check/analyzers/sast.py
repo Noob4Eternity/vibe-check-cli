@@ -41,7 +41,7 @@ _VIBE_RULES = os.path.normpath(
 # Tool runners
 # ---------------------------------------------------------------------------
 
-async def _run_bandit(repo_path: str) -> List[Finding]:
+async def _run_bandit(repo_path: str, config: dict | None = None) -> List[Finding]:
     """Run Bandit and return parsed findings."""
     if shutil.which("bandit") is None:
         logger.warning(
@@ -51,6 +51,12 @@ async def _run_bandit(repo_path: str) -> List[Finding]:
         return []
 
     cmd = ["bandit", "-r", repo_path, "-f", "json", "-ll"]
+    
+    if config and config.get("exclude"):
+        # Bandit handles excludes via a comma-separated list
+        # Strip trailing slashes so bandit matches directory names
+        excludes = [x.rstrip("/") for x in config["exclude"]]
+        cmd.extend(["-x", ",".join(excludes)])
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -128,7 +134,7 @@ def _confidence_for_bandit(confidence_str: str) -> float:
 
 # ---------------------------------------------------------------------------
 
-async def _run_semgrep(repo_path: str) -> List[Finding]:
+async def _run_semgrep(repo_path: str, config: dict | None = None) -> List[Finding]:
     """Run Semgrep with the bundled vibe-antipattern rules and return findings."""
     if shutil.which("semgrep") is None:
         logger.warning(
@@ -144,8 +150,13 @@ async def _run_semgrep(repo_path: str) -> List[Finding]:
         "semgrep",
         "--config", rules_arg,
         "--json",
-        repo_path,
     ]
+
+    if config and config.get("exclude"):
+        for ex in config["exclude"]:
+            cmd.extend(["--exclude", ex.rstrip("/")])
+
+    cmd.append(repo_path)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -275,8 +286,8 @@ class SASTAnalyzer(BaseAnalyzer):
     ) -> List[Finding]:
         # Run both tools concurrently
         bandit_findings, semgrep_findings = await asyncio.gather(
-            _run_bandit(repo_path),
-            _run_semgrep(repo_path),
+            _run_bandit(repo_path, config),
+            _run_semgrep(repo_path, config),
         )
 
         # Merge and deduplicate (Semgrep wins on collision)

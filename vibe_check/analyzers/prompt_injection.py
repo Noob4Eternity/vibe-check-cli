@@ -62,7 +62,7 @@ class PromptInjectionAnalyzer(BaseAnalyzer):
         self, repo_path: str, config: dict | None = None
     ) -> List[Finding]:
         # Phase 1 — semgrep scan
-        raw_hits = await self._run_semgrep(repo_path)
+        raw_hits = await self._run_semgrep(repo_path, config)
         logger.info("Phase 1 (semgrep): %d raw hits", len(raw_hits))
 
         if not raw_hits:
@@ -83,19 +83,28 @@ class PromptInjectionAnalyzer(BaseAnalyzer):
 
     # ── Phase 1: Semgrep ────────────────────────────────────────────
 
-    async def _run_semgrep(self, repo_path: str) -> list[dict]:
+    async def _run_semgrep(self, repo_path: str, config: dict | None = None) -> list[dict]:
         """Run semgrep with prompt injection rules, return raw results."""
         if not RULES_PATH.exists():
             logger.warning("Prompt injection rules not found: %s", RULES_PATH)
             return []
 
+        cmd = [
+            "semgrep",
+            "--config", str(RULES_PATH),
+            "--json",
+            "--quiet",
+        ]
+        
+        if config and config.get("exclude"):
+            for ex in config["exclude"]:
+                cmd.extend(["--exclude", ex.rstrip("/")])
+                
+        cmd.append(str(repo_path))
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                "semgrep",
-                "--config", str(RULES_PATH),
-                "--json",
-                "--quiet",
-                str(repo_path),
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
