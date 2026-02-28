@@ -1,0 +1,1 @@
+"""Secrets analyzer (P2)."""

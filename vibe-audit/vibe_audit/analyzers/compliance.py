@@ -1,0 +1,1 @@
+"""Compliance analyzer (P1)."""
