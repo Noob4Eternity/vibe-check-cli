@@ -1,2 +1,120 @@
 # Vibe coding antipattern rules (P2)
-rules: []
+rules:
+  # -----------------------------------------------------------------------
+  # 1. eval() / exec() usage
+  # -----------------------------------------------------------------------
+  - id: va-eval-usage
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+    message: >
+      Avoid eval()/exec() — they execute arbitrary code and are a common
+      source of remote code execution (RCE) vulnerabilities.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    metadata:
+      cwe: "CWE-95"
+      category: sast
+
+  # -----------------------------------------------------------------------
+  # 2. Broad CORS (origins = "*")
+  # -----------------------------------------------------------------------
+  - id: va-broad-cors
+    patterns:
+      - pattern-either:
+          - pattern: |
+              CORS($APP, origins="*", ...)
+          - pattern: |
+              CORS($APP, resources={...: {"origins": "*"}}, ...)
+          - pattern: |
+              allow_origins=["*"]
+    message: >
+      CORS configured with origins="*" allows any website to make
+      authenticated requests to your API. Restrict to trusted domains.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: "CWE-942"
+      category: sast
+
+  # -----------------------------------------------------------------------
+  # 3. Hard-coded JWT secret
+  # -----------------------------------------------------------------------
+  - id: va-hardcoded-jwt
+    patterns:
+      - pattern-either:
+          - pattern: jwt.encode($PAYLOAD, "...", ...)
+          - pattern: jwt.sign($PAYLOAD, "...", ...)
+          - pattern: jwt.decode($TOKEN, "...", ...)
+    message: >
+      JWT secret is hard-coded as a string literal. Move it to an
+      environment variable or secrets manager.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    metadata:
+      cwe: "CWE-798"
+      category: sast
+
+  # -----------------------------------------------------------------------
+  # 4. Client-side auth via localStorage token
+  # -----------------------------------------------------------------------
+  - id: va-client-side-auth
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if (localStorage.getItem("token")) { ... }
+          - pattern: |
+              if (localStorage.getItem("auth")) { ... }
+          - pattern: |
+              if (sessionStorage.getItem("token")) { ... }
+    message: >
+      Relying on localStorage/sessionStorage tokens for auth checks is
+      insecure — tokens can be tampered with. Validate on the server side.
+    severity: WARNING
+    languages: [javascript, typescript, jsx, tsx]
+    metadata:
+      cwe: "CWE-603"
+      category: sast
+
+  # -----------------------------------------------------------------------
+  # 5. SQL string concatenation / f-string injection
+  # -----------------------------------------------------------------------
+  - id: va-sql-string-concat
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CURSOR.execute(f"...", ...)
+          - pattern: |
+              $CURSOR.execute("..." + $VAR, ...)
+          - pattern: |
+              $CURSOR.execute("..." % $VAR, ...)
+          - pattern: |
+              $CURSOR.execute("...".format(...), ...)
+          - pattern: |
+              $DB.query(f"...", ...)
+          - pattern: |
+              $DB.query("..." + $VAR, ...)
+    message: >
+      SQL query built with string concatenation or f-strings is vulnerable
+      to SQL injection. Use parameterized queries instead.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    metadata:
+      cwe: "CWE-89"
+      category: sast
+
+  # -----------------------------------------------------------------------
+  # 6. dangerouslySetInnerHTML in React
+  # -----------------------------------------------------------------------
+  - id: va-dangerous-inner-html
+    pattern: |
+      <$EL dangerouslySetInnerHTML={...} />
+    message: >
+      dangerouslySetInnerHTML can lead to Cross-Site Scripting (XSS).
+      Sanitize input with DOMPurify or use safe rendering methods.
+    severity: WARNING
+    languages: [jsx, tsx, javascript, typescript]
+    metadata:
+      cwe: "CWE-79"
+      category: sast
