@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vibe-check"
+name = "vibe-check-cli"
 version = "0.1.0"
 description = "🎵 Security auditor for vibe-coded repos — 95% deterministic, 25x cheaper than competitors"
 readme = "README.md"
@@ -35,3 +35,6 @@ dev = [
 
 [project.scripts]
 vibe-check = "vibe_check.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vibe_check"]

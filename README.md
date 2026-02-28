@@ -5,7 +5,7 @@ Security auditor for vibe-coded repos — 95% deterministic, 25x cheaper than co
 ## Installation
 
 ```bash
-pip install vibe-check
+pip install vibe-check-cli
 ```
 
 ## Setup API Keys

@@ -21,7 +21,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install VibeCheck
-        run: pip install vibe-check
+        run: pip install vibe-check-cli
 
       - name: Run VibeCheck Scan
         env:
