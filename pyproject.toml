@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vibe-check-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "🎵 Security auditor for vibe-coded repos — 95% deterministic, 25x cheaper than competitors"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,20 +14,16 @@ dependencies = [
     "rich>=13.0",
     "aiohttp>=3.9.0",
     "python-dotenv>=1.0.0",
-]
-
-[project.optional-dependencies]
-llm = [
     "google-genai>=1.0.0",
     "openai>=1.0",
     "anthropic>=0.40",
-]
-scanning = [
     "detect-secrets>=1.4",
     "bandit>=1.7",
     "semgrep>=1.50",
     "pip-audit>=2.6",
 ]
+
+[project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
