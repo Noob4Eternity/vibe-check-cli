@@ -72,7 +72,7 @@ rules:
       Relying on localStorage/sessionStorage tokens for auth checks is
       insecure — tokens can be tampered with. Validate on the server side.
     severity: WARNING
-    languages: [javascript, typescript, jsx, tsx]
+    languages: [javascript, typescript]
     metadata:
       cwe: "CWE-603"
       category: sast
@@ -114,7 +114,7 @@ rules:
       dangerouslySetInnerHTML can lead to Cross-Site Scripting (XSS).
       Sanitize input with DOMPurify or use safe rendering methods.
     severity: WARNING
-    languages: [jsx, tsx, javascript, typescript]
+    languages: [javascript, typescript]
     metadata:
       cwe: "CWE-79"
       category: sast

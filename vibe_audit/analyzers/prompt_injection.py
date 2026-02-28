@@ -88,6 +88,7 @@ class PromptInjectionAnalyzer(BaseAnalyzer):
                 "--config", str(RULES_PATH),
                 "--json",
                 "--quiet",
+                "--no-git-ignore",
                 str(repo_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

@@ -1,12 +1,11 @@
-# GDPR compliance rules (P2)
+# GDPR compliance rules (P2 — fixed by P1)
 rules:
   # -----------------------------------------------------------------------
-  # 1. PII fields logged / printed
+  # 1a. PII fields logged / printed (Python)
   # -----------------------------------------------------------------------
-  - id: va-pii-in-logs
+  - id: va-pii-in-logs-python
     patterns:
       - pattern-either:
-          # Python logging
           - pattern: logging.info(..., $OBJ.email, ...)
           - pattern: logging.info(..., $OBJ.password, ...)
           - pattern: logging.info(..., $OBJ.phone, ...)
@@ -17,21 +16,30 @@ rules:
           - pattern: print(..., $OBJ.password, ...)
           - pattern: print(..., $OBJ.phone, ...)
           - pattern: print(..., $OBJ.ssn, ...)
-          # Python f-string in log
-          - pattern: logging.$METHOD(f"...{$OBJ.email}...")
-          - pattern: logging.$METHOD(f"...{$OBJ.password}...")
-          - pattern: logging.$METHOD(f"...{$OBJ.phone}...")
-          - pattern: logging.$METHOD(f"...{$OBJ.ssn}...")
-          # JS/TS console.log
+    message: >
+      PII field (email, password, phone, ssn) is being logged or printed.
+      This violates GDPR data minimisation. Mask or redact PII before logging.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: "CWE-532"
+      category: compliance_gdpr
+
+  # -----------------------------------------------------------------------
+  # 1b. PII fields logged / printed (JS/TS)
+  # -----------------------------------------------------------------------
+  - id: va-pii-in-logs-js
+    patterns:
+      - pattern-either:
           - pattern: console.log(..., $OBJ.email, ...)
           - pattern: console.log(..., $OBJ.password, ...)
           - pattern: console.log(..., $OBJ.phone, ...)
           - pattern: console.log(..., $OBJ.ssn, ...)
     message: >
-      PII field (email, password, phone, ssn) is being logged or printed.
+      PII field (email, password, phone, ssn) is being logged via console.log.
       This violates GDPR data minimisation. Mask or redact PII before logging.
     severity: WARNING
-    languages: [python, javascript, typescript]
+    languages: [javascript, typescript]
     metadata:
       cwe: "CWE-532"
       category: compliance_gdpr
@@ -41,8 +49,7 @@ rules:
   # -----------------------------------------------------------------------
   - id: va-password-in-url
     patterns:
-      - pattern-either:
-          - pattern-regex: "[?&](password|token|secret|api_key)="
+      - pattern-regex: "[?&](password|token|secret|api_key)="
     message: >
       Sensitive data (password/token) is passed as a URL query parameter.
       Query strings are logged in server access logs, browser history, and
@@ -73,24 +80,7 @@ rules:
   # 4. Full stack trace leaked in HTTP response
   # -----------------------------------------------------------------------
   - id: va-error-leak
-    patterns:
-      - pattern-either:
-          - pattern: |
-              except $EX:
-                  ...
-                  return $FUNC(traceback.format_exc())
-          - pattern: |
-              except $EX as $E:
-                  ...
-                  return $FUNC(traceback.format_exc())
-          - pattern: |
-              except $EX as $E:
-                  ...
-                  return jsonify({"error": traceback.format_exc()})
-          - pattern: |
-              except $EX as $E:
-                  ...
-                  return Response(traceback.format_exc(), ...)
+    pattern: return $FUNC(traceback.format_exc())
     message: >
       Full stack trace is returned in an HTTP response. This leaks internal
       implementation details to attackers. Log the trace server-side and

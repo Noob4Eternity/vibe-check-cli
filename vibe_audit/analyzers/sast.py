@@ -144,6 +144,7 @@ async def _run_semgrep(repo_path: str) -> List[Finding]:
         "semgrep",
         "--config", rules_arg,
         "--json",
+        "--no-git-ignore",
         repo_path,
     ]
     try:

@@ -84,6 +84,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
                     "--config", str(rule_path),
                     "--json",
                     "--quiet",
+                    "--no-git-ignore",
                     str(repo_path),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -203,13 +204,13 @@ class ComplianceAnalyzer(BaseAnalyzer):
         # Build compact summary
         lines = []
         if frameworks:
-            lines.append(f"Frameworks: {', '.join(set(frameworks)[:5])}")
+            lines.append(f"Frameworks: {', '.join(sorted(set(frameworks))[:5])}")
         if routes:
             lines.append(f"Routes: {', '.join(routes[:15])}")
         if pii_fields:
-            lines.append(f"PII-like fields: {', '.join(set(pii_fields)[:10])}")
+            lines.append(f"PII-like fields: {', '.join(sorted(set(pii_fields))[:10])}")
         if auth_decorators:
-            lines.append(f"Auth decorators: {', '.join(set(auth_decorators)[:5])}")
+            lines.append(f"Auth decorators: {', '.join(sorted(set(auth_decorators))[:5])}")
         else:
             lines.append("Auth decorators: NONE DETECTED")
         if logging_calls:

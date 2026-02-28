@@ -103,7 +103,7 @@ rules:
       XSS if the model returns malicious HTML/JS. Sanitize with DOMPurify
       or escape before rendering.
     severity: ERROR
-    languages: [javascript, typescript, jsx, tsx]
+    languages: [javascript, typescript]
     metadata:
       cwe: "CWE-79"
       category: prompt_injection
