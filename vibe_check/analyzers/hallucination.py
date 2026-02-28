@@ -27,17 +27,44 @@ logger = logging.getLogger("vibe_check.hallucination")
 # hallucinated packages. This is deterministic — no API calls needed.
 
 _KNOWN_EXPORTS: Dict[str, FrozenSet[str]] = {
-    # React
+    # React — hooks, components, types, and utilities
     "react": frozenset({
+        # Hooks
         "useState", "useEffect", "useContext", "useReducer", "useCallback",
         "useMemo", "useRef", "useImperativeHandle", "useLayoutEffect",
         "useDebugValue", "useDeferredValue", "useTransition", "useId",
         "useSyncExternalStore", "useInsertionEffect", "useOptimistic",
-        "useActionState", "use", "useFormStatus",
+        "useActionState", "use", "useFormStatus", "useFormState",
+        # Components & utilities
         "Component", "PureComponent", "Fragment", "StrictMode", "Suspense",
         "lazy", "memo", "forwardRef", "createContext", "createElement",
         "cloneElement", "createRef", "isValidElement", "Children",
-        "startTransition", "cache",
+        "startTransition", "cache", "createFactory",
+        # Types (commonly imported in TypeScript)
+        "ReactNode", "ReactElement", "ReactChild", "ReactChildren",
+        "ReactFragment", "ReactPortal", "ReactText",
+        "JSX", "CSSProperties", "HTMLAttributes", "SVGAttributes",
+        "ChangeEvent", "FormEvent", "MouseEvent", "KeyboardEvent",
+        "FocusEvent", "TouchEvent", "SyntheticEvent", "ClipboardEvent",
+        "DragEvent", "WheelEvent", "AnimationEvent", "TransitionEvent",
+        "PointerEvent", "CompositionEvent", "UIEvent",
+        "FC", "FunctionComponent", "ComponentType", "ComponentProps",
+        "ComponentPropsWithRef", "ComponentPropsWithoutRef",
+        "PropsWithChildren", "PropsWithRef",
+        "Ref", "RefObject", "MutableRefObject", "RefCallback",
+        "Dispatch", "SetStateAction", "ReducerAction",
+        "Context", "Provider", "Consumer",
+        "Key", "LegacyRef", "ElementType",
+        "ButtonHTMLAttributes", "InputHTMLAttributes", "FormHTMLAttributes",
+        "AnchorHTMLAttributes", "ImgHTMLAttributes", "TextareaHTMLAttributes",
+        "SelectHTMLAttributes", "TableHTMLAttributes", "HTMLProps",
+        # Type keyword imports (TypeScript `import type { X }`)
+        "type ReactNode", "type ReactElement", "type CSSProperties",
+        "type FC", "type ComponentProps", "type HTMLAttributes",
+        "type ChangeEvent", "type FormEvent", "type MouseEvent",
+        "type KeyboardEvent", "type RefObject", "type Dispatch",
+        "type SetStateAction", "type ComponentType", "type ElementType",
+        "type PropsWithChildren",
     }),
 
     # React DOM
@@ -67,8 +94,27 @@ _KNOWN_EXPORTS: Dict[str, FrozenSet[str]] = {
     "next/head": frozenset({"default"}),
     "next/script": frozenset({"default"}),
     "next/font/google": frozenset({
-        "Inter", "Roboto", "Open_Sans", "Lato", "Montserrat", "Poppins",
-        "Raleway", "Oswald", "Outfit", "Playfair_Display", "Nunito",
+        # Top 50+ Google Fonts used in Next.js
+        "Inter", "Roboto", "Roboto_Mono", "Roboto_Condensed", "Roboto_Slab",
+        "Open_Sans", "Lato", "Montserrat", "Poppins", "Raleway", "Oswald",
+        "Outfit", "Playfair_Display", "Nunito", "Nunito_Sans",
+        "Source_Sans_3", "Source_Code_Pro", "Source_Serif_4",
+        "Ubuntu", "Ubuntu_Mono", "Merriweather", "PT_Sans", "PT_Serif",
+        "Noto_Sans", "Noto_Serif", "Noto_Sans_JP", "Noto_Sans_KR",
+        "Fira_Code", "Fira_Sans", "Fira_Mono",
+        "JetBrains_Mono", "IBM_Plex_Sans", "IBM_Plex_Mono", "IBM_Plex_Serif",
+        "DM_Sans", "DM_Serif_Display", "DM_Mono",
+        "Space_Grotesk", "Space_Mono",
+        "Work_Sans", "Lexend", "Manrope", "Sora", "Karla", "Cabin",
+        "Barlow", "Barlow_Condensed", "Quicksand", "Mulish", "Rubik",
+        "Titillium_Web", "Libre_Franklin", "Libre_Baskerville",
+        "Inconsolata", "Overpass", "Overpass_Mono",
+        "Crimson_Text", "Crimson_Pro", "Cormorant_Garamond",
+        "Josefin_Sans", "Josefin_Slab", "Archivo", "Archivo_Narrow",
+        "Comfortaa", "Pacifico", "Dancing_Script", "Caveat",
+        "Bebas_Neue", "Anton", "Lobster", "Abril_Fatface",
+        "Satisfy", "Great_Vibes", "Sacramento",
+        "Geist", "Geist_Mono",
     }),
     "next/headers": frozenset({
         "cookies", "headers",
@@ -142,12 +188,30 @@ _KNOWN_EXPORTS: Dict[str, FrozenSet[str]] = {
         "JSONEncoder", "JSONDecoder",
     }),
     "typing": frozenset({
+        # Core types
         "Any", "Dict", "List", "Optional", "Set", "Tuple", "Union",
+        "FrozenSet", "Deque", "DefaultDict", "OrderedDict", "Counter",
+        "ChainMap", "Pattern", "Match", "IO", "TextIO", "BinaryIO",
+        # Callable / Iterator types
         "Callable", "Iterable", "Iterator", "Generator", "Sequence",
-        "Mapping", "TypeVar", "Generic", "Protocol", "Literal",
+        "Mapping", "MutableMapping", "MutableSequence", "MutableSet",
+        "Awaitable", "Coroutine", "AsyncIterator", "AsyncIterable",
+        "AsyncGenerator", "ContextManager", "AsyncContextManager",
+        # Generics & protocols
+        "TypeVar", "Generic", "Protocol", "Literal", "Type",
         "ClassVar", "Final", "Annotated", "TypeAlias", "TypeGuard",
         "ParamSpec", "Concatenate", "Unpack", "TypeVarTuple",
-        "NamedTuple", "TypedDict", "overload",
+        # Structural
+        "NamedTuple", "TypedDict", "overload", "cast", "no_type_check",
+        "runtime_checkable", "final", "get_type_hints",
+        "TYPE_CHECKING", "NewType", "AnyStr", "Text", "SupportsInt",
+        "SupportsFloat", "SupportsComplex", "SupportsBytes",
+        "SupportsAbs", "SupportsRound", "Reversible", "Container",
+        "Collection", "Hashable", "Sized", "AbstractSet",
+        "ValuesView", "KeysView", "ItemsView", "MappingView",
+        "Never", "NoReturn", "Self", "Required", "NotRequired",
+        "assert_never", "reveal_type", "dataclass_transform",
+        "override",
     }),
 }
 

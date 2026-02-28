@@ -46,6 +46,9 @@ _SECRETS_EXCLUDE_PATTERNS = [
     r"poetry\.lock$",
     r"Pipfile\.lock$",
     r"composer\.lock$",
+    r"-lock\.json$",           # catch-all: skills-lock.json, etc.
+    r"lock\.json$",            # any other lock files
+    r"\.lock$",                # generic lock files
     # Template / example files — contain placeholder credentials
     r"\.example$",
     r"\.sample$",
@@ -55,7 +58,11 @@ _SECRETS_EXCLUDE_PATTERNS = [
     # Documentation — may reference key formats in examples
     r"\.md$",
     r"\.rst$",
-    r"\.txt$",
+    # Mock / test data — intentionally contain fake secrets
+    r"mock[_-]",               # mock_data.ts, mock-findings.py
+    r"fixtures/",              # test fixtures
+    r"__tests__/",
+    r"__mocks__/",
 ]
 
 
@@ -181,6 +188,14 @@ class SecretsAnalyzer(BaseAnalyzer):
             for secret in secret_list:
                 secret_type: str = secret.get("type", "Unknown")
                 line_number: int = secret.get("line_number", 0)
+
+                # Skip KeywordDetector hits in source code files.
+                # This detector flags ANY line containing words like
+                # "secret", "password", "token" — which triggers on enum
+                # definitions like `SECRET = "secret"` or mock data.
+                if secret_type == "KeywordDetector" and filepath.endswith((".py", ".ts", ".tsx", ".js", ".jsx")):
+                    logger.debug("Skipping KeywordDetector FP in source: %s:%d", filepath, line_number)
+                    continue
                 severity = _severity_for(secret_type)
                 title = _title_for(secret_type)
 
