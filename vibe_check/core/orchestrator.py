@@ -23,11 +23,24 @@ def _detect_languages(repo_path: str) -> List[str]:
         ".jsx": "JSX", ".tsx": "TSX", ".go": "Go", ".rb": "Ruby",
         ".rs": "Rust", ".java": "Java", ".yml": "YAML", ".yaml": "YAML",
     }
+
+    from vibe_check.utils.git_utils import is_git_repo, get_git_tracked_files
+
+    if is_git_repo(repo_path):
+        files = get_git_tracked_files(repo_path)
+        langs = set()
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in ext_map:
+                langs.add(ext_map[ext])
+        return sorted(langs)
+
+    # Fallback for non-git directories — walk with hardcoded skips
+    _SKIP_DIRS = {"node_modules", ".venv", "venv", "env", "__pycache__"}
     langs = set()
     for root, _dirs, files in os.walk(repo_path):
-        # Skip hidden dirs and node_modules
         parts = root.split(os.sep)
-        if any(p.startswith(".") or p == "node_modules" for p in parts):
+        if any(p.startswith(".") or p in _SKIP_DIRS for p in parts):
             continue
         for fname in files:
             ext = os.path.splitext(fname)[1].lower()
@@ -38,13 +51,22 @@ def _detect_languages(repo_path: str) -> List[str]:
 
 def _count_files(repo_path: str) -> int:
     """Count scannable files in the repo."""
-    count = 0
     scannable = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rb",
                  ".rs", ".java", ".yml", ".yaml", ".json", ".toml",
                  ".cfg", ".ini", ".env", ".md", ".txt"}
+
+    from vibe_check.utils.git_utils import is_git_repo, get_git_tracked_files
+
+    if is_git_repo(repo_path):
+        files = get_git_tracked_files(repo_path)
+        return sum(1 for f in files if os.path.splitext(f)[1].lower() in scannable)
+
+    # Fallback for non-git directories
+    _SKIP_DIRS = {"node_modules", ".venv", "venv", "env", "__pycache__"}
+    count = 0
     for root, _dirs, files in os.walk(repo_path):
         parts = root.split(os.sep)
-        if any(p.startswith(".") or p == "node_modules" for p in parts):
+        if any(p.startswith(".") or p in _SKIP_DIRS for p in parts):
             continue
         for fname in files:
             if os.path.splitext(fname)[1].lower() in scannable:

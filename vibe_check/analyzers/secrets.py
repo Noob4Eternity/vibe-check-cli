@@ -89,15 +89,26 @@ class SecretsAnalyzer(BaseAnalyzer):
         # ------------------------------------------------------------------
         # 2. Run detect-secrets scan as async subprocess
         # ------------------------------------------------------------------
-        cmd = ["detect-secrets", "scan", "--all-files"]
-        
+        from vibe_check.utils.git_utils import is_git_repo
+
+        # Layer 1: In a git repo, omit --all-files so detect-secrets
+        #          only scans git-tracked files (respects .gitignore).
+        # Layer 2: For non-git dirs, use --all-files but pass the
+        #          hardcoded exclude regex as a safety net.
+        git_repo = is_git_repo(repo_path)
+
+        if git_repo:
+            cmd = ["detect-secrets", "scan"]
+        else:
+            cmd = ["detect-secrets", "scan", "--all-files"]
+
+        # Always add the safety-net regex (Layer 2)
         if config and config.get("exclude"):
             import re
-            # detect-secrets requires a regex. e.g. "^node_modules/|^\.venv/"
             escaped = [re.escape(x.rstrip("/")) for x in config["exclude"]]
             regex = "^" + "/|^".join(escaped) + "/"
             cmd.extend(["--exclude-files", regex])
-            
+
         cmd.append(".")
         try:
             proc = await asyncio.create_subprocess_exec(

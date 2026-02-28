@@ -50,13 +50,22 @@ async def _run_bandit(repo_path: str, config: dict | None = None) -> List[Findin
         )
         return []
 
-    cmd = ["bandit", "-r", repo_path, "-f", "json", "-ll"]
-    
-    if config and config.get("exclude"):
-        # Bandit handles excludes via a comma-separated list
-        # Strip trailing slashes so bandit matches directory names
-        excludes = [x.rstrip("/") for x in config["exclude"]]
-        cmd.extend(["-x", ",".join(excludes)])
+    from vibe_check.utils.git_utils import is_git_repo, get_git_tracked_files
+
+    # Layer 1: In a git repo, feed only tracked .py files to Bandit.
+    # Layer 2: For non-git dirs, use -r with hardcoded excludes.
+    if is_git_repo(repo_path):
+        py_files = get_git_tracked_files(repo_path, extensions=[".py"])
+        if not py_files:
+            logger.info("No git-tracked Python files found — skipping Bandit")
+            return []
+        # Pass tracked files directly (paths are relative to repo_path)
+        cmd = ["bandit", "-f", "json", "-ll"] + py_files
+    else:
+        cmd = ["bandit", "-r", repo_path, "-f", "json", "-ll"]
+        if config and config.get("exclude"):
+            excludes = [x.rstrip("/") for x in config["exclude"]]
+            cmd.extend(["-x", ",".join(excludes)])
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
