@@ -38,10 +38,20 @@ _GRADE_TABLE: list[tuple[float, str]] = [
 
 
 def calculate_category_score(findings: List[Finding]) -> float:
-    """Score a single category: starts at 100, subtracts penalty * confidence."""
+    """Score a single category: starts at 100, subtracts penalty * confidence.
+
+    Uses diminishing returns: after the first 3 findings, each additional
+    finding's penalty is halved. This prevents a flood of medium-severity
+    LLM findings from tanking a category to 0.
+    """
     score = 100.0
-    for f in findings:
+    for i, f in enumerate(sorted(findings, key=lambda x: PENALTIES.get(x.severity, 0), reverse=True)):
         penalty = PENALTIES.get(f.severity, 0)
+        # Diminishing returns: after 3 findings, each extra finding
+        # has half the impact. This keeps the first findings meaningful
+        # but stops accumulation from hitting 0.
+        if i >= 3:
+            penalty *= 0.5
         score -= penalty * f.confidence
     return max(score, 0.0)
 

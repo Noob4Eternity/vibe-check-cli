@@ -150,10 +150,11 @@ class ComplianceAnalyzer(BaseAnalyzer):
     # ── Phase 2: AST Summary ────────────────────────────────────────
 
     def _build_ast_summary(self, repo_path: str) -> str:
-        """Build a compressed structural summary of the repo.
+        """Build a structured summary of the repo with evidence for compliance.
 
-        Extracts: routes, PII-like fields, auth decorators, logging calls.
-        Targets ~300 tokens output.
+        Extracts: routes with protection status, PII fields with file locations,
+        auth patterns, logging origins, encryption/hashing detection.
+        Targets ~500 tokens output with file-level evidence.
         """
         routes: list[str] = []
         pii_fields: list[str] = []
@@ -162,7 +163,13 @@ class ComplianceAnalyzer(BaseAnalyzer):
         has_consent_mechanism = False
         has_deletion_endpoint = False
         has_encryption = False
+        has_password_hashing = False
         frameworks: list[str] = []
+        # Track which files contain PII for evidence
+        pii_files: dict[str, list[str]] = {}
+        # Track protected vs unprotected routes
+        protected_routes: list[str] = []
+        unprotected_routes: list[str] = []
 
         root = Path(repo_path)
 
@@ -184,6 +191,18 @@ class ComplianceAnalyzer(BaseAnalyzer):
                     has_deletion_endpoint = True
                 if "encrypt" in lower or "fernet" in lower or "aes" in lower:
                     has_encryption = True
+                if "bcrypt" in lower or "argon2" in lower or "pbkdf2" in lower:
+                    has_password_hashing = True
+
+                # Track PII fields per file
+                _PII_RE = re.compile(
+                    r"(email|password|passwd|phone|ssn|social_security|"
+                    r"credit_card|card_number|address|date_of_birth|dob|"
+                    r"first_name|last_name|full_name|ip_address)",
+                    re.IGNORECASE,
+                )
+                for m in _PII_RE.finditer(source):
+                    pii_files.setdefault(str(rel), []).append(m.group(0))
 
             except (SyntaxError, UnicodeDecodeError):
                 continue
@@ -204,28 +223,67 @@ class ComplianceAnalyzer(BaseAnalyzer):
                     if "delete" in lower and ("user" in lower or "account" in lower):
                         has_deletion_endpoint = True
 
+                    # Track PII fields per file (JS/TS)
+                    _PII_RE_JS = re.compile(
+                        r"(email|password|phone|ssn|creditCard|cardNumber|address|dateOfBirth)",
+                        re.IGNORECASE,
+                    )
+                    for m in _PII_RE_JS.finditer(source):
+                        pii_files.setdefault(str(rel), []).append(m.group(0))
+
                 except UnicodeDecodeError:
                     continue
 
-        # Build compact summary
+        # Determine route protection status
+        auth_fn_names = {a.split(" (")[0] for a in auth_decorators}
+        for route in routes:
+            fn_name = route.split(" ")[-1] if " " in route else ""
+            # Check if any auth decorator matches this route's function
+            if any(fn in route for fn in auth_fn_names):
+                protected_routes.append(route)
+            else:
+                unprotected_routes.append(route)
+
+        # Build structured summary with evidence
         lines = []
         if frameworks:
             lines.append(f"Frameworks: {', '.join(list(set(frameworks))[:5])}")
-        if routes:
-            lines.append(f"Routes: {', '.join(routes[:15])}")
-        if pii_fields:
-            lines.append(f"PII-like fields: {', '.join(list(set(pii_fields))[:10])}")
+
+        # Routes with protection status
+        if protected_routes:
+            lines.append(f"Protected routes ({len(protected_routes)}): {', '.join(protected_routes[:8])}")
+        if unprotected_routes:
+            lines.append(f"Unprotected routes ({len(unprotected_routes)}): {', '.join(unprotected_routes[:8])}")
+        if not routes:
+            lines.append("Routes: NONE DETECTED")
+
+        # PII with file locations (evidence-backed)
+        if pii_files:
+            lines.append(f"PII-like fields found in {len(pii_files)} files:")
+            for filepath, fields in sorted(pii_files.items())[:8]:
+                unique_fields = list(set(fields))[:5]
+                lines.append(f"  - {filepath}: {', '.join(unique_fields)}")
+        else:
+            lines.append("PII-like fields: NONE DETECTED")
+
+        # Auth
         if auth_decorators:
             lines.append(f"Auth decorators: {', '.join(list(set(auth_decorators))[:5])}")
         else:
             lines.append("Auth decorators: NONE DETECTED")
+
+        # Logging with file breakdown
         if logging_calls:
-            lines.append(f"Logging calls: {len(logging_calls)} total")
+            log_files = list(set(logging_calls))
+            lines.append(f"Logging: {len(logging_calls)} calls across {len(log_files)} files")
         else:
-            lines.append("Logging calls: NONE DETECTED")
-        lines.append(f"Consent mechanism: {'yes' if has_consent_mechanism else 'NOT DETECTED'}")
-        lines.append(f"Deletion endpoint: {'yes' if has_deletion_endpoint else 'NOT DETECTED'}")
-        lines.append(f"Encryption usage: {'yes' if has_encryption else 'NOT DETECTED'}")
+            lines.append("Logging: NONE DETECTED")
+
+        # Security controls
+        lines.append(f"Consent mechanism: {'YES' if has_consent_mechanism else 'NOT DETECTED'}")
+        lines.append(f"Deletion endpoint: {'YES' if has_deletion_endpoint else 'NOT DETECTED'}")
+        lines.append(f"Encryption at rest: {'YES' if has_encryption else 'NOT DETECTED'}")
+        lines.append(f"Password hashing (bcrypt/argon2): {'YES' if has_password_hashing else 'NOT DETECTED'}")
 
         return "\n".join(lines)
 
@@ -410,12 +468,19 @@ class ComplianceAnalyzer(BaseAnalyzer):
         for item in items:
             if not isinstance(item, dict):
                 continue
+
+            # Cap LLM-generated compliance findings at HIGH severity.
+            # LLM findings are probabilistic — they shouldn't be CRITICAL
+            # since they may be based on incomplete context.
+            raw_sev = item.get("severity", "medium")
+            severity = sev_map.get(raw_sev, Severity.MEDIUM)
+            if severity == Severity.CRITICAL:
+                severity = Severity.HIGH
+
             findings.append(
                 Finding(
                     title=item.get("title", "Compliance gap"),
-                    severity=sev_map.get(
-                        item.get("severity", "medium"), Severity.MEDIUM
-                    ),
+                    severity=severity,
                     category=cat_map.get(
                         item.get("category", "compliance_gdpr"),
                         Category.COMPLIANCE_GDPR,
@@ -425,7 +490,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
                     remediation=item.get("remediation", ""),
                     ai_prompt=f"Fix compliance issue: {item.get('title', '')}. {item.get('remediation', '')}",
                     compliance_ref=item.get("compliance_ref"),
-                    confidence=0.8,
+                    confidence=0.7,
                     tool="llm-compliance",
                 )
             )
@@ -434,10 +499,13 @@ class ComplianceAnalyzer(BaseAnalyzer):
 
 
 def _should_skip(rel_path: Path) -> bool:
-    """Skip vendor, node_modules, venv, etc."""
+    """Skip vendor, node_modules, venv, tests, fixtures, etc."""
     parts = rel_path.parts
     skip_dirs = {
         "node_modules", ".venv", "venv", "__pycache__", ".git",
         "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
+        # Test / fixture directories — contain intentionally vulnerable
+        # code and fake PII that shouldn't trigger compliance findings
+        "tests", "test", "fixtures", "__tests__", "__mocks__",
     }
     return bool(set(parts) & skip_dirs)

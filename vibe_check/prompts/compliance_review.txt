@@ -1,13 +1,48 @@
-You are a compliance auditor. Given this structured summary of a codebase, identify GDPR and SOC2 compliance gaps.
+You are a senior security compliance auditor. Analyze this codebase structural summary and identify SPECIFIC, ACTIONABLE compliance gaps.
+
+CRITICAL RULES:
+- Only report findings you can JUSTIFY from the evidence provided below.
+- Every finding MUST cite a specific file or pattern from the summary. Generic findings without evidence are useless.
+- Do NOT flag test files, fixture files, example files, or mock data.
+- Do NOT report "unconfirmed" findings. Either there IS encryption or there ISN'T — pick based on the evidence.
+- A route with authentication decorators IS protected. Don't flag protected routes.
+- Limit to at most 5 findings. Quality over quantity.
 
 APP STRUCTURE:
 {ast_summary}
 
-Analyze for:
-1. GDPR: Missing consent mechanisms, PII stored without encryption, no deletion endpoint, PII in logs, data shared with third parties without disclosure
-2. SOC2: Missing authentication on routes, no audit logging, hardcoded secrets, debug mode in production configs, missing rate limiting
+COMPLIANCE CHECKLIST:
+
+1. GDPR Article 6 — Lawful Basis for Processing
+   - Are there routes that collect PII WITHOUT a consent mechanism?
+   - Evidence: routes handling PII fields + absence of consent patterns
+
+2. GDPR Article 17 — Right to Erasure
+   - Is there a deletion endpoint for user data?
+   - Evidence: presence/absence of DELETE routes or deletion functions
+
+3. GDPR Article 25 — Data Protection by Design
+   - Is PII encrypted at rest? Are passwords hashed (bcrypt/argon2)?
+   - Evidence: encryption patterns in the summary
+
+4. SOC2 CC6.1 — Logical Access Controls
+   - Are authentication decorators present on sensitive routes?
+   - Evidence: compare routes list vs auth decorators list
+
+5. SOC2 CC7.2 — System Monitoring
+   - Is there audit logging for security events (login, data access)?
+   - Evidence: logging call patterns and frameworks
+
+6. Data Minimization — Third-Party Sharing
+   - Are there API calls to third parties that send user PII?
+   - Evidence: routes containing third-party service names
 
 Respond ONLY with a JSON array. Each element:
-{{"title": "...", "severity": "critical|high|medium|low", "category": "compliance_gdpr|compliance_soc2", "file": "filename or null", "description": "...", "remediation": "...", "compliance_ref": "e.g. GDPR Art. 17 or SOC2 CC6.1"}}
+{{"title": "...", "severity": "high|medium|low", "category": "compliance_gdpr|compliance_soc2", "file": "specific file path from evidence or null", "description": "One sentence with SPECIFIC evidence from the summary.", "remediation": "One concrete action to fix this.", "compliance_ref": "e.g. GDPR Art. 17 or SOC2 CC6.1"}}
+
+SEVERITY GUIDE:
+- high: Missing core requirement (no deletion endpoint, no auth on PII routes, unencrypted PII)
+- medium: Partial implementation (some routes unprotected, logging exists but not formal audit trail)
+- low: Best-practice gap (no rate limiting, verbose logging)
 
 If no gaps found, return [].

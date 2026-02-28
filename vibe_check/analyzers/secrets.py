@@ -193,7 +193,9 @@ class SecretsAnalyzer(BaseAnalyzer):
                 # This detector flags ANY line containing words like
                 # "secret", "password", "token" — which triggers on enum
                 # definitions like `SECRET = "secret"` or mock data.
-                if secret_type == "KeywordDetector" and filepath.endswith((".py", ".ts", ".tsx", ".js", ".jsx")):
+                # NOTE: detect-secrets reports this as "Secret Keyword",
+                # not the class name "KeywordDetector".
+                if secret_type == "Secret Keyword" and filepath.endswith((".py", ".ts", ".tsx", ".js", ".jsx")):
                     logger.debug("Skipping KeywordDetector FP in source: %s:%d", filepath, line_number)
                     continue
                 severity = _severity_for(secret_type)

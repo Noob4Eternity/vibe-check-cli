@@ -160,22 +160,17 @@ class LLMSummarizer(BaseAnalyzer):
                 )
             )
 
-        # Remediation prompts as findings
+        # Remediation prompts as findings (INFO severity — these are
+        # guidance for developers, NOT new security vulnerabilities.
+        # Using the original severity would double-count penalties.)
         for item in data.get("remediation_prompts", []):
             if not isinstance(item, dict):
                 continue
 
-            sev_map = {
-                "critical": Severity.CRITICAL,
-                "high": Severity.HIGH,
-            }
-
             findings.append(
                 Finding(
                     title=f"Remediation: {item.get('title', 'Fix')}",
-                    severity=sev_map.get(
-                        item.get("severity", "high"), Severity.HIGH
-                    ),
+                    severity=Severity.INFO,
                     category=Category.LLM_REVIEW,
                     description=f"AI-generated remediation for: {item.get('title', '')}",
                     remediation=item.get("prompt", ""),
