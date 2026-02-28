@@ -8,12 +8,12 @@ import os
 import time
 from typing import List
 
-from vibe_audit.analyzers.base import BaseAnalyzer
-from vibe_audit.core.scorer import calculate_composite, get_grade, get_verdict
-from vibe_audit.models.finding import Finding
-from vibe_audit.models.result import ScanResult
+from vibe_check.analyzers.base import BaseAnalyzer
+from vibe_check.core.scorer import calculate_composite, get_grade, get_verdict
+from vibe_check.models.finding import Finding
+from vibe_check.models.result import ScanResult
 
-logger = logging.getLogger("vibe_audit.orchestrator")
+logger = logging.getLogger("vibe_check.orchestrator")
 
 
 def _detect_languages(repo_path: str) -> List[str]:
@@ -92,7 +92,7 @@ class Orchestrator:
         start = time.perf_counter()
 
         # Separate LLMSummarizer from regular analyzers
-        from vibe_audit.analyzers.llm_summarizer import LLMSummarizer
+        from vibe_check.analyzers.llm_summarizer import LLMSummarizer
 
         regular = [a for a in self.analyzers if not isinstance(a, LLMSummarizer)]
         summarizers = [a for a in self.analyzers if isinstance(a, LLMSummarizer)]

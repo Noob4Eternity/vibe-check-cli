@@ -1,4 +1,4 @@
-"""Configuration utility — loads .vibeaudit.yml + env vars."""
+"""Configuration utility — loads .vibecheck.yml + env vars."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
 
 
 def load_config(repo_path: str | None = None) -> Dict[str, Any]:
-    """Load config from .vibeaudit.yml, falling back to defaults.
+    """Load config from .vibecheck.yml, falling back to defaults.
 
     Priority: env vars > yaml file > defaults.
     """
@@ -30,20 +30,20 @@ def load_config(repo_path: str | None = None) -> Dict[str, Any]:
 
     # Try to load YAML
     search = Path(repo_path) if repo_path else Path.cwd()
-    yml_path = search / ".vibeaudit.yml"
+    yml_path = search / ".vibecheck.yml"
     if yml_path.exists():
         with open(yml_path) as f:
             user_cfg = yaml.safe_load(f) or {}
         _deep_merge(config, user_cfg)
 
     # Env var overrides
-    if os.environ.get("VIBE_AUDIT_API_KEY"):
-        config.setdefault("llm", {})["api_key"] = os.environ["VIBE_AUDIT_API_KEY"]
-    if os.environ.get("VIBE_AUDIT_PROVIDER"):
-        config.setdefault("llm", {})["provider"] = os.environ["VIBE_AUDIT_PROVIDER"]
-    if os.environ.get("VIBE_AUDIT_TOKEN_BUDGET"):
+    if os.environ.get("VIBE_CHECK_API_KEY"):
+        config.setdefault("llm", {})["api_key"] = os.environ["VIBE_CHECK_API_KEY"]
+    if os.environ.get("VIBE_CHECK_PROVIDER"):
+        config.setdefault("llm", {})["provider"] = os.environ["VIBE_CHECK_PROVIDER"]
+    if os.environ.get("VIBE_CHECK_TOKEN_BUDGET"):
         config.setdefault("llm", {})["token_budget"] = int(
-            os.environ["VIBE_AUDIT_TOKEN_BUDGET"]
+            os.environ["VIBE_CHECK_TOKEN_BUDGET"]
         )
 
     return config

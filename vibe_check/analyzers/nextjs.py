@@ -15,10 +15,10 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from vibe_audit.analyzers.base import BaseAnalyzer
-from vibe_audit.models.finding import Category, Finding, Severity
+from vibe_check.analyzers.base import BaseAnalyzer
+from vibe_check.models.finding import Category, Finding, Severity
 
-logger = logging.getLogger("vibe_audit.nextjs")
+logger = logging.getLogger("vibe_check.nextjs")
 
 # Sensitive variable patterns that should NEVER be prefixed with NEXT_PUBLIC_
 _SENSITIVE_PATTERNS = re.compile(

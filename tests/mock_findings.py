@@ -1,6 +1,6 @@
 """15 realistic mock findings for testing CLI, scorer, and report without real analyzers."""
 
-from vibe_audit.models.finding import Category, Finding, Severity
+from vibe_check.models.finding import Category, Finding, Severity
 
 
 MOCK_FINDINGS = [

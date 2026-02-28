@@ -15,11 +15,11 @@ import logging
 from pathlib import Path
 from typing import Dict, FrozenSet, List, Optional, Set
 
-from vibe_audit.analyzers.base import BaseAnalyzer
-from vibe_audit.models.finding import Category, Finding, Severity
-from vibe_audit.utils.ast_mapper import ImportInfo, build_ast_map
+from vibe_check.analyzers.base import BaseAnalyzer
+from vibe_check.models.finding import Category, Finding, Severity
+from vibe_check.utils.ast_mapper import ImportInfo, build_ast_map
 
-logger = logging.getLogger("vibe_audit.hallucination")
+logger = logging.getLogger("vibe_check.hallucination")
 
 
 # ── Known exports of popular packages ──────────────────────────────

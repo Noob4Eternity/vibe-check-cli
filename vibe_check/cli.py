@@ -1,4 +1,4 @@
-"""CLI entrypoint for vibe-audit — built with Typer + Rich."""
+"""CLI entrypoint for vibe-check — built with Typer + Rich."""
 
 from __future__ import annotations
 
@@ -11,10 +11,13 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from vibe_audit import __version__
+from dotenv import load_dotenv
+load_dotenv()
+
+from vibe_check import __version__
 
 app = typer.Typer(
-    name="vibe-audit",
+    name="vibe-check",
     help="🎵 Audit vibe-coded repos for security, compliance & hallucinations.",
     add_completion=False,
 )
@@ -23,30 +26,30 @@ console = Console()
 
 def _get_analyzers(mode: str):
     """Build the list of analyzers based on mode."""
-    from vibe_audit.analyzers.base import BaseAnalyzer
+    from vibe_check.analyzers.base import BaseAnalyzer
 
     analyzers: list[BaseAnalyzer] = []
 
     # Import each analyzer — skip gracefully if not yet implemented
     analyzer_classes = [
-        ("vibe_audit.analyzers.secrets", "SecretsAnalyzer"),
-        ("vibe_audit.analyzers.sast", "SASTAnalyzer"),
-        ("vibe_audit.analyzers.dependencies", "DependencyAnalyzer"),
-        ("vibe_audit.analyzers.hallucination", "HallucinationDetector"),
-        ("vibe_audit.analyzers.nextjs", "NextJSAnalyzer"),
-        ("vibe_audit.analyzers.compliance", "ComplianceAnalyzer"),
-        ("vibe_audit.analyzers.prompt_injection", "PromptInjectionAnalyzer"),
-        ("vibe_audit.analyzers.llm_summarizer", "LLMSummarizer"),
+        ("vibe_check.analyzers.secrets", "SecretsAnalyzer"),
+        ("vibe_check.analyzers.sast", "SASTAnalyzer"),
+        ("vibe_check.analyzers.dependencies", "DependencyAnalyzer"),
+        ("vibe_check.analyzers.hallucination", "HallucinationDetector"),
+        ("vibe_check.analyzers.nextjs", "NextJSAnalyzer"),
+        ("vibe_check.analyzers.compliance", "ComplianceAnalyzer"),
+        ("vibe_check.analyzers.prompt_injection", "PromptInjectionAnalyzer"),
+        ("vibe_check.analyzers.llm_summarizer", "LLMSummarizer"),
     ]
 
     if mode == "fast":
         # Fast mode: skip LLM-dependent analyzers (tiers 3-5)
         analyzer_classes = [
-            ("vibe_audit.analyzers.secrets", "SecretsAnalyzer"),
-            ("vibe_audit.analyzers.sast", "SASTAnalyzer"),
-            ("vibe_audit.analyzers.dependencies", "DependencyAnalyzer"),
-            ("vibe_audit.analyzers.hallucination", "HallucinationDetector"),
-            ("vibe_audit.analyzers.nextjs", "NextJSAnalyzer"),
+            ("vibe_check.analyzers.secrets", "SecretsAnalyzer"),
+            ("vibe_check.analyzers.sast", "SASTAnalyzer"),
+            ("vibe_check.analyzers.dependencies", "DependencyAnalyzer"),
+            ("vibe_check.analyzers.hallucination", "HallucinationDetector"),
+            ("vibe_check.analyzers.nextjs", "NextJSAnalyzer"),
         ]
 
     for module_path, class_name in analyzer_classes:
@@ -71,7 +74,7 @@ def scan(
     threshold: int = typer.Option(60, "--threshold", "-t", help="Score threshold for --exit-code"),
     severity: Optional[str] = typer.Option(None, "--severity", "-s", help="Filter: critical,high,medium,low,info"),
 ):
-    """🔍 Run a full vibe-audit scan on a repository."""
+    """🔍 Run a full vibe-check scan on a repository."""
     repo_path = os.path.abspath(path)
     if not os.path.isdir(repo_path):
         console.print(f"[red]Error:[/red] {repo_path} is not a directory")
@@ -81,14 +84,14 @@ def scan(
     if not analyzers:
         console.print("[yellow]⚠ No analyzers available. Install analyzer dependencies or check implementations.[/yellow]")
 
-    from vibe_audit.core.orchestrator import Orchestrator
+    from vibe_check.core.orchestrator import Orchestrator
 
     orchestrator = Orchestrator(analyzers=analyzers, config={"mode": mode})
     result = asyncio.run(orchestrator.run(repo_path))
 
     # Filter by severity if specified
     if severity:
-        from vibe_audit.models.finding import Severity
+        from vibe_check.models.finding import Severity
         allowed = {s.strip().lower() for s in severity.split(",")}
         result.findings = [
             f for f in result.findings if f.severity.value in allowed
@@ -100,7 +103,7 @@ def scan(
     elif format == "markdown":
         console.print(result.to_markdown())
     else:
-        from vibe_audit.core.report import render_terminal
+        from vibe_check.core.report import render_terminal
         render_terminal(result)
 
     if exit_code and result.score < threshold:
@@ -120,7 +123,7 @@ def score(
         raise typer.Exit(1)
 
     analyzers = _get_analyzers("full")
-    from vibe_audit.core.orchestrator import Orchestrator
+    from vibe_check.core.orchestrator import Orchestrator
 
     orchestrator = Orchestrator(analyzers=analyzers)
     result = asyncio.run(orchestrator.run(repo_path))
@@ -134,14 +137,14 @@ def score(
 
 @app.command()
 def init():
-    """⚙️  Initialize vibe-audit config and git hook in the current repo."""
-    config_path = Path(".vibeaudit.yml")
+    """⚙️  Initialize vibe-check config and git hook in the current repo."""
+    config_path = Path(".vibecheck.yml")
     if config_path.exists():
-        console.print("[yellow]⚠ .vibeaudit.yml already exists[/yellow]")
+        console.print("[yellow]⚠ .vibecheck.yml already exists[/yellow]")
     else:
         config_path.write_text(
-            "# VibeAudit Configuration\n"
-            "# See https://github.com/vibe-audit for docs\n\n"
+            "# VibeCheck Configuration\n"
+            "# See https://github.com/vibe-check for docs\n\n"
             "mode: full\n"
             "threshold: 60\n"
             "severity_filter: []\n"
@@ -154,7 +157,7 @@ def init():
             "  provider: openai  # openai or anthropic\n"
             "  token_budget: 5000\n"
         )
-        console.print("[green]✅ Created .vibeaudit.yml[/green]")
+        console.print("[green]✅ Created .vibecheck.yml[/green]")
 
     # Install pre-push hook
     hooks_dir = Path(".git/hooks")
@@ -162,13 +165,13 @@ def init():
         hook_path = hooks_dir / "pre-push"
         hook_path.write_text(
             "#!/bin/sh\n"
-            '# VibeAudit pre-push hook\n'
-            'vibe-audit scan . --mode fast --severity critical,high --exit-code\n'
+            '# VibeCheck pre-push hook\n'
+            'vibe-check scan . --mode fast --severity critical,high --exit-code\n'
             'if [ $? -ne 0 ]; then\n'
-            '  echo "❌ Push blocked by VibeAudit"\n'
+            '  echo "❌ Push blocked by VibeCheck"\n'
             '  exit 1\n'
             'fi\n'
-            'echo "✅ VibeAudit passed"\n'
+            'echo "✅ VibeCheck passed"\n'
         )
         hook_path.chmod(0o755)
         console.print("[green]✅ Installed pre-push git hook[/green]")
@@ -178,7 +181,7 @@ def init():
 
 def version_callback(value: bool):
     if value:
-        console.print(f"vibe-audit {__version__}")
+        console.print(f"vibe-check {__version__}")
         raise typer.Exit()
 
 
@@ -186,7 +189,7 @@ def version_callback(value: bool):
 def main(
     version: bool = typer.Option(False, "--version", "-v", callback=version_callback, is_eager=True),
 ):
-    """🎵 VibeAudit — Security auditor for vibe-coded repos."""
+    """🎵 VibeCheck — Security auditor for vibe-coded repos."""
     pass
 
 if __name__ == "__main__":

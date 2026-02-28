@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-logger = logging.getLogger("vibe_audit.ast_mapper")
+logger = logging.getLogger("vibe_check.ast_mapper")
 
 
 @dataclass

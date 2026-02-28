@@ -8,8 +8,8 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 
-from vibe_audit.models.finding import Severity
-from vibe_audit.models.result import ScanResult
+from vibe_check.models.finding import Severity
+from vibe_check.models.result import ScanResult
 
 console = Console()
 
@@ -101,7 +101,7 @@ def render_terminal(result: ScanResult) -> None:
         table.add_column("Findings", justify="right")
 
         # Count findings per group
-        from vibe_audit.models.finding import CATEGORY_GROUP
+        from vibe_check.models.finding import CATEGORY_GROUP
 
         group_counts: dict[str, int] = {}
         for f in result.findings:

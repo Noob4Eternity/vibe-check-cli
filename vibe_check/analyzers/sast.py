@@ -9,10 +9,10 @@ import os
 import shutil
 from typing import List, Tuple
 
-from vibe_audit.analyzers.base import BaseAnalyzer
-from vibe_audit.models.finding import Category, Finding, Severity
+from vibe_check.analyzers.base import BaseAnalyzer
+from vibe_check.models.finding import Category, Finding, Severity
 
-logger = logging.getLogger("vibe_audit.sast")
+logger = logging.getLogger("vibe_check.sast")
 
 # ---------------------------------------------------------------------------
 # Severity mapping helpers
@@ -30,7 +30,7 @@ _SEMGREP_SEVERITY_MAP = {
     "ERROR": Severity.HIGH,
 }
 
-# Path to the bundled Semgrep rules shipped with vibe-audit
+# Path to the bundled Semgrep rules shipped with vibe-check
 _RULES_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "rules")
 _VIBE_RULES = os.path.normpath(
     os.path.join(_RULES_DIR, "vibe_antipatterns.yml")

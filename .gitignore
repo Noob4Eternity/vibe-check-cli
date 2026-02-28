@@ -23,3 +23,5 @@ Thumbs.db
 
 # vibe-audit runtime
 .vibeaudit.yml
+
+/tests

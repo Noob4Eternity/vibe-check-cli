@@ -8,10 +8,10 @@ import logging
 import shutil
 from typing import List
 
-from vibe_audit.analyzers.base import BaseAnalyzer
-from vibe_audit.models.finding import Category, Finding, Severity
+from vibe_check.analyzers.base import BaseAnalyzer
+from vibe_check.models.finding import Category, Finding, Severity
 
-logger = logging.getLogger("vibe_audit.secrets")
+logger = logging.getLogger("vibe_check.secrets")
 
 # detect-secrets "type" strings that indicate well-known credential patterns
 _KNOWN_PATTERN_TYPES = frozenset({

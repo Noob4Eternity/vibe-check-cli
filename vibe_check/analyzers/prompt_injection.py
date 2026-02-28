@@ -16,11 +16,11 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from vibe_audit.analyzers.base import BaseAnalyzer
-from vibe_audit.models.finding import Category, Finding, Severity
-from vibe_audit.utils.llm_client import LLMClient
+from vibe_check.analyzers.base import BaseAnalyzer
+from vibe_check.models.finding import Category, Finding, Severity
+from vibe_check.utils.llm_client import LLMClient
 
-logger = logging.getLogger("vibe_audit.prompt_injection")
+logger = logging.getLogger("vibe_check.prompt_injection")
 
 PROMPT_TEMPLATE_PATH = (
     Path(__file__).parent.parent / "prompts" / "injection_review.txt"
@@ -31,7 +31,7 @@ RULES_PATH = Path(__file__).parent.parent / "rules" / "prompt_injection.yml"
 CONTEXT_LINES = 15
 
 # Max tokens per LLM call for a single segment
-MAX_TOKENS_PER_SEGMENT = 200
+MAX_TOKENS_PER_SEGMENT = 2000
 
 # Confidence threshold — below this we discard as false positive
 CONFIDENCE_THRESHOLD = 0.3
@@ -45,7 +45,7 @@ class PromptInjectionAnalyzer(BaseAnalyzer):
             self._llm = llm_client
         else:
             try:
-                from vibe_audit.utils.llm_client import LLMClient
+                from vibe_check.utils.llm_client import LLMClient
                 self._llm = LLMClient(provider="gemini")
             except Exception:
                 self._llm = None

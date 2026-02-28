@@ -1,4 +1,4 @@
-name: VibeAudit PR Check
+name: VibeCheck PR Check
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  vibeaudit:
+  vibecheck:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -20,11 +20,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install VibeAudit
-        run: pip install vibe-audit
+      - name: Install VibeCheck
+        run: pip install vibe-check
 
-      - name: Run VibeAudit Scan
-        run: vibe-audit scan . --format markdown > vibeaudit-report.md
+      - name: Run VibeCheck Scan
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: vibe-check scan . --format markdown > vibecheck-report.md
         continue-on-error: true
 
       - name: Post PR Comment
@@ -32,19 +34,19 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const report = fs.readFileSync('vibeaudit-report.md', 'utf8');
+            const report = fs.readFileSync('vibecheck-report.md', 'utf8');
             const body = report.length > 65000
               ? report.substring(0, 65000) + '\n\n... (truncated)'
               : report;
 
-            // Find existing VibeAudit comment
+            // Find existing VibeCheck comment
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
             const existing = comments.find(c =>
-              c.body.includes('🔍 VibeAudit Report')
+              c.body.includes('🔍 VibeCheck Report')
             );
 
             if (existing) {
@@ -64,4 +66,6 @@ jobs:
             }
 
       - name: Check Score Threshold
-        run: vibe-audit score . --exit-code --threshold 60
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: vibe-check score . --exit-code --threshold 60

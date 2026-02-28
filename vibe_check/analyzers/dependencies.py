@@ -28,10 +28,10 @@ except ImportError:
 
 import aiohttp
 
-from vibe_audit.analyzers.base import BaseAnalyzer
-from vibe_audit.models.finding import Category, Finding, Severity
+from vibe_check.analyzers.base import BaseAnalyzer
+from vibe_check.models.finding import Category, Finding, Severity
 
-logger = logging.getLogger("vibe_audit.dependencies")
+logger = logging.getLogger("vibe_check.dependencies")
 
 
 # ── Popular package lists for typosquat detection ──────────────────
@@ -417,7 +417,7 @@ class DependencyAnalyzer(BaseAnalyzer):
         findings: List[Finding] = []
         async with aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=10),
-            headers={"User-Agent": "vibe-audit/0.1.0"},
+            headers={"User-Agent": "vibe-check/0.1.0"},
         ) as session:
             # Registry checks + CVE audit run concurrently
             registry_tasks = [

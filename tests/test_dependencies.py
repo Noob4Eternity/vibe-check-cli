@@ -1,4 +1,4 @@
-"""Tests for vibe_audit.analyzers.dependencies"""
+"""Tests for vibe_check.analyzers.dependencies"""
 from __future__ import annotations
 
 import io
@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import urllib.error
 
-from vibe_audit.analyzers.dependencies import (
+from vibe_check.analyzers.dependencies import (
     find_config_files,
     parse_requirements,
     parse_package_json,
@@ -275,7 +275,7 @@ PYPI_RESPONSE = {
 
 
 class TestCheckPypi(unittest.TestCase):
-    @patch("vibe_audit.analyzers.dependencies._http_get_json", return_value=PYPI_RESPONSE)
+    @patch("vibe_check.analyzers.dependencies._http_get_json", return_value=PYPI_RESPONSE)
     def test_found(self, _mock):
         result = check_pypi("flask")
         self.assertTrue(result["found"])
@@ -283,19 +283,19 @@ class TestCheckPypi(unittest.TestCase):
         self.assertEqual(result["latest_release_date"], "2021-05-11T12:00:00Z")
         self.assertEqual(result["summary"], "A web framework")
 
-    @patch("vibe_audit.analyzers.dependencies._http_get_json", return_value={})
+    @patch("vibe_check.analyzers.dependencies._http_get_json", return_value={})
     def test_empty_response(self, _mock):
         result = check_pypi("nonexistent")
         self.assertFalse(result["found"])
 
-    @patch("vibe_audit.analyzers.dependencies._http_get_json",
+    @patch("vibe_check.analyzers.dependencies._http_get_json",
            side_effect=urllib.error.HTTPError(None, 404, "Not Found", {}, None))
     def test_404(self, _mock):
         result = check_pypi("ghost-pkg")
         self.assertFalse(result["found"])
         self.assertEqual(result.get("status"), 404)
 
-    @patch("vibe_audit.analyzers.dependencies._http_get_json",
+    @patch("vibe_check.analyzers.dependencies._http_get_json",
            side_effect=Exception("timeout"))
     def test_network_error(self, _mock):
         result = check_pypi("flask")
@@ -315,7 +315,7 @@ NPM_RESPONSE = {
 
 
 class TestCheckNpm(unittest.TestCase):
-    @patch("vibe_audit.analyzers.dependencies._http_get_json", return_value=NPM_RESPONSE)
+    @patch("vibe_check.analyzers.dependencies._http_get_json", return_value=NPM_RESPONSE)
     def test_found(self, _mock):
         result = check_npm("lodash")
         self.assertTrue(result["found"])
@@ -323,19 +323,19 @@ class TestCheckNpm(unittest.TestCase):
         self.assertEqual(result["latest_release_date"], "2021-03-02T00:00:00Z")
         self.assertEqual(result["summary"], "A JS utility library")
 
-    @patch("vibe_audit.analyzers.dependencies._http_get_json", return_value={})
+    @patch("vibe_check.analyzers.dependencies._http_get_json", return_value={})
     def test_empty_response(self, _mock):
         result = check_npm("nonexistent")
         self.assertFalse(result["found"])
 
-    @patch("vibe_audit.analyzers.dependencies._http_get_json",
+    @patch("vibe_check.analyzers.dependencies._http_get_json",
            side_effect=urllib.error.HTTPError(None, 404, "Not Found", {}, None))
     def test_404(self, _mock):
         result = check_npm("ghost-pkg")
         self.assertFalse(result["found"])
         self.assertEqual(result.get("status"), 404)
 
-    @patch("vibe_audit.analyzers.dependencies._http_get_json",
+    @patch("vibe_check.analyzers.dependencies._http_get_json",
            side_effect=Exception("timeout"))
     def test_network_error(self, _mock):
         result = check_npm("lodash")
@@ -379,9 +379,9 @@ class TestDetermineRegistry(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestCheckEntries(unittest.TestCase):
-    @patch("vibe_audit.analyzers.dependencies.check_pypi", return_value={"found": True, "latest_version": "1.0"})
-    @patch("vibe_audit.analyzers.dependencies.check_npm", return_value={"found": True, "latest_version": "2.0"})
-    @patch("vibe_audit.analyzers.dependencies.time.sleep")
+    @patch("vibe_check.analyzers.dependencies.check_pypi", return_value={"found": True, "latest_version": "1.0"})
+    @patch("vibe_check.analyzers.dependencies.check_npm", return_value={"found": True, "latest_version": "2.0"})
+    @patch("vibe_check.analyzers.dependencies.time.sleep")
     def test_routes_by_registry(self, _sleep, mock_npm, mock_pypi):
         entries = [
             {"name": "flask", "requested": "==2.0", "source": "requirements.txt"},
@@ -396,8 +396,8 @@ class TestCheckEntries(unittest.TestCase):
         mock_pypi.assert_called_once_with("flask")
         mock_npm.assert_called_once_with("express")
 
-    @patch("vibe_audit.analyzers.dependencies.check_pypi", return_value={"found": True})
-    @patch("vibe_audit.analyzers.dependencies.time.sleep")
+    @patch("vibe_check.analyzers.dependencies.check_pypi", return_value={"found": True})
+    @patch("vibe_check.analyzers.dependencies.time.sleep")
     def test_deduplicates(self, _sleep, mock_pypi):
         entries = [
             {"name": "flask", "requested": "==2.0", "source": "requirements.txt"},
@@ -407,8 +407,8 @@ class TestCheckEntries(unittest.TestCase):
         self.assertEqual(len(results), 1)
         mock_pypi.assert_called_once()
 
-    @patch("vibe_audit.analyzers.dependencies.check_pypi", return_value={"found": True})
-    @patch("vibe_audit.analyzers.dependencies.time.sleep")
+    @patch("vibe_check.analyzers.dependencies.check_pypi", return_value={"found": True})
+    @patch("vibe_check.analyzers.dependencies.time.sleep")
     def test_skips_missing_name(self, _sleep, _mock_pypi):
         entries = [{"name": None, "requested": None, "source": "requirements.txt"}]
         self.assertEqual(check_entries(entries), [])
@@ -419,9 +419,9 @@ class TestCheckEntries(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestScanRepository(unittest.TestCase):
-    @patch("vibe_audit.analyzers.dependencies.check_pypi", return_value={"found": True, "latest_version": "1.0"})
-    @patch("vibe_audit.analyzers.dependencies.check_npm", return_value={"found": True, "latest_version": "2.0"})
-    @patch("vibe_audit.analyzers.dependencies.time.sleep")
+    @patch("vibe_check.analyzers.dependencies.check_pypi", return_value={"found": True, "latest_version": "1.0"})
+    @patch("vibe_check.analyzers.dependencies.check_npm", return_value={"found": True, "latest_version": "2.0"})
+    @patch("vibe_check.analyzers.dependencies.time.sleep")
     def test_full_scan(self, _sleep, _npm, _pypi):
         with tempfile.TemporaryDirectory() as root:
             _write(os.path.join(root, "requirements.txt"), "flask==2.0\nrequests>=2.25\n")
@@ -436,7 +436,7 @@ class TestScanRepository(unittest.TestCase):
         pkgs = {r["package"] for r in results}
         self.assertEqual(pkgs, {"flask", "requests", "express", "jest", "typer"})
 
-    @patch("vibe_audit.analyzers.dependencies.time.sleep")
+    @patch("vibe_check.analyzers.dependencies.time.sleep")
     def test_empty_repo(self, _sleep):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(scan_repository(root), [])
@@ -663,7 +663,7 @@ class TestComputeHealthScore(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestMain(unittest.TestCase):
-    @patch("vibe_audit.analyzers.dependencies.scan_repository", return_value=[
+    @patch("vibe_check.analyzers.dependencies.scan_repository", return_value=[
         {"package": "flask", "package_type": "pypi", "found": True,
          "requested": "==2.0", "latest_version": "2.0", "latest_release_date": None}
     ])
@@ -677,7 +677,7 @@ class TestMain(unittest.TestCase):
             self.assertIn(key, output)
         self.assertIn("flask", output["up_to_date"])
 
-    @patch("vibe_audit.analyzers.dependencies.scan_repository", return_value=[])
+    @patch("vibe_check.analyzers.dependencies.scan_repository", return_value=[])
     def test_uses_cwd_when_no_args(self, mock_scan):
         with patch("sys.stdout", io.StringIO()):
             main([])

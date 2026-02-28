@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-logger = logging.getLogger("vibe_audit.llm_client")
+logger = logging.getLogger("vibe_check.llm_client")
 
 
 class TokenBudgetExceeded(Exception):

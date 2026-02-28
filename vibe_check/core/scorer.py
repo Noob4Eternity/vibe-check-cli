@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from vibe_audit.models.finding import Finding, Severity, CATEGORY_GROUP
+from vibe_check.models.finding import Finding, Severity, CATEGORY_GROUP
 
 
 # ── Weights per scoring group ──────────────────────────────────────

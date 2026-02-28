@@ -5,11 +5,11 @@ from __future__ import annotations
 import abc
 from typing import List
 
-from vibe_audit.models.finding import Finding
+from vibe_check.models.finding import Finding
 
 
 class BaseAnalyzer(abc.ABC):
-    """Abstract base class for all vibe-audit analyzers."""
+    """Abstract base class for all vibe-check analyzers."""
 
     @property
     @abc.abstractmethod
@@ -29,7 +29,7 @@ class BaseAnalyzer(abc.ABC):
 
         Args:
             repo_path: Absolute path to the repository root.
-            config: Optional config dict (from .vibeaudit.yml or CLI flags).
+            config: Optional config dict (from .vibecheck.yml or CLI flags).
 
         Returns:
             List of Finding instances.

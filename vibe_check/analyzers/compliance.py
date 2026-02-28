@@ -17,11 +17,11 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from vibe_audit.analyzers.base import BaseAnalyzer
-from vibe_audit.models.finding import Category, Finding, Severity
-from vibe_audit.utils.llm_client import LLMClient
+from vibe_check.analyzers.base import BaseAnalyzer
+from vibe_check.models.finding import Category, Finding, Severity
+from vibe_check.utils.llm_client import LLMClient
 
-logger = logging.getLogger("vibe_audit.compliance")
+logger = logging.getLogger("vibe_check.compliance")
 
 PROMPT_TEMPLATE_PATH = Path(__file__).parent.parent / "prompts" / "compliance_review.txt"
 
@@ -363,7 +363,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
         prompt = template.replace("{ast_summary}", ast_summary)
 
         try:
-            response = await self._llm.ask(prompt, max_tokens=2500)
+            response = await self._llm.ask(prompt, max_tokens=8192)
         except Exception as e:
             logger.error("LLM compliance check failed: %s", e)
             return []
@@ -383,7 +383,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
         start = json_str.find("[")
         end = json_str.rfind("]")
         if start == -1 or end == -1:
-            logger.warning("No JSON array found in LLM response")
+            logger.warning(f"No JSON array found in LLM response. Raw response was: {repr(response)}")
             return []
 
         json_str = json_str[start : end + 1]
