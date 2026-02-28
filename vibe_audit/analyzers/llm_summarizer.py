@@ -27,7 +27,13 @@ class LLMSummarizer(BaseAnalyzer):
     """Generates executive summary and remediation prompts from all findings."""
 
     def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
-        self._llm = llm_client
+        if llm_client:
+            self._llm = llm_client
+        else:
+            try:
+                self._llm = LLMClient(provider="gemini")
+            except Exception:
+                self._llm = None
 
     @property
     def name(self) -> str:
@@ -68,7 +74,7 @@ class LLMSummarizer(BaseAnalyzer):
 
         # ONE LLM call
         try:
-            response = await self._llm.ask(prompt, max_tokens=600)
+            response = await self._llm.ask(prompt, max_tokens=2500)
         except Exception as e:
             logger.error("LLM summarization failed: %s", e)
             return []
@@ -119,9 +125,9 @@ class LLMSummarizer(BaseAnalyzer):
 
         # Handle markdown code blocks
         if "```" in text:
-            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            match = re.search(r"```(?:json)?(.*?)```", text, re.DOTALL)
             if match:
-                text = match.group(1)
+                text = match.group(1).strip()
 
         # Find JSON object
         start = text.find("{")

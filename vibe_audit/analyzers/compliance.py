@@ -33,7 +33,14 @@ class ComplianceAnalyzer(BaseAnalyzer):
     """Detects GDPR and SOC2 compliance gaps using semgrep + LLM reasoning."""
 
     def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
-        self._llm = llm_client
+        if llm_client:
+            self._llm = llm_client
+        else:
+            # Auto-initialize from env if API key is available
+            try:
+                self._llm = LLMClient(provider="gemini")
+            except Exception:
+                self._llm = None
 
     @property
     def name(self) -> str:
@@ -203,13 +210,13 @@ class ComplianceAnalyzer(BaseAnalyzer):
         # Build compact summary
         lines = []
         if frameworks:
-            lines.append(f"Frameworks: {', '.join(set(frameworks)[:5])}")
+            lines.append(f"Frameworks: {', '.join(list(set(frameworks))[:5])}")
         if routes:
             lines.append(f"Routes: {', '.join(routes[:15])}")
         if pii_fields:
-            lines.append(f"PII-like fields: {', '.join(set(pii_fields)[:10])}")
+            lines.append(f"PII-like fields: {', '.join(list(set(pii_fields))[:10])}")
         if auth_decorators:
-            lines.append(f"Auth decorators: {', '.join(set(auth_decorators)[:5])}")
+            lines.append(f"Auth decorators: {', '.join(list(set(auth_decorators))[:5])}")
         else:
             lines.append("Auth decorators: NONE DETECTED")
         if logging_calls:
@@ -356,7 +363,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
         prompt = template.replace("{ast_summary}", ast_summary)
 
         try:
-            response = await self._llm.ask(prompt, max_tokens=500)
+            response = await self._llm.ask(prompt, max_tokens=2500)
         except Exception as e:
             logger.error("LLM compliance check failed: %s", e)
             return []
@@ -368,9 +375,9 @@ class ComplianceAnalyzer(BaseAnalyzer):
         # Extract JSON from response (handle markdown code blocks)
         json_str = response.strip()
         if "```" in json_str:
-            match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", json_str, re.DOTALL)
+            match = re.search(r"```(?:json)?(.*?)```", json_str, re.DOTALL)
             if match:
-                json_str = match.group(1)
+                json_str = match.group(1).strip()
 
         # Try to find JSON array
         start = json_str.find("[")

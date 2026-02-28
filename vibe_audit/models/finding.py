@@ -29,6 +29,7 @@ class Category(Enum):
     """Finding category types."""
     SECRET = "secret"
     HALLUCINATED_DEPENDENCY = "hallucinated_dependency"
+    HALLUCINATED_IMPORT = "hallucinated_import"
     VULNERABLE_DEPENDENCY = "vulnerable_dependency"
     SAST = "sast"
     COMPLIANCE_GDPR = "compliance_gdpr"
@@ -38,6 +39,7 @@ class Category(Enum):
     IAC_SECURITY = "iac_security"
     LLM_REVIEW = "llm_review"
     VIBE_FINGERPRINT = "vibe_fingerprint"
+    FRAMEWORK_SPECIFIC = "framework_specific"
 
 
 # Map categories to scoring groups

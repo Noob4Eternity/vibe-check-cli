@@ -32,6 +32,8 @@ def _get_analyzers(mode: str):
         ("vibe_audit.analyzers.secrets", "SecretsAnalyzer"),
         ("vibe_audit.analyzers.sast", "SASTAnalyzer"),
         ("vibe_audit.analyzers.dependencies", "DependencyAnalyzer"),
+        ("vibe_audit.analyzers.hallucination", "HallucinationDetector"),
+        ("vibe_audit.analyzers.nextjs", "NextJSAnalyzer"),
         ("vibe_audit.analyzers.compliance", "ComplianceAnalyzer"),
         ("vibe_audit.analyzers.prompt_injection", "PromptInjectionAnalyzer"),
         ("vibe_audit.analyzers.llm_summarizer", "LLMSummarizer"),
@@ -43,6 +45,8 @@ def _get_analyzers(mode: str):
             ("vibe_audit.analyzers.secrets", "SecretsAnalyzer"),
             ("vibe_audit.analyzers.sast", "SASTAnalyzer"),
             ("vibe_audit.analyzers.dependencies", "DependencyAnalyzer"),
+            ("vibe_audit.analyzers.hallucination", "HallucinationDetector"),
+            ("vibe_audit.analyzers.nextjs", "NextJSAnalyzer"),
         ]
 
     for module_path, class_name in analyzer_classes:
@@ -184,3 +188,6 @@ def main(
 ):
     """🎵 VibeAudit — Security auditor for vibe-coded repos."""
     pass
+
+if __name__ == "__main__":
+    app()

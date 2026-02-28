@@ -1,0 +1,67 @@
+name: VibeAudit PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  vibeaudit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install VibeAudit
+        run: pip install vibe-audit
+
+      - name: Run VibeAudit Scan
+        run: vibe-audit scan . --format markdown > vibeaudit-report.md
+        continue-on-error: true
+
+      - name: Post PR Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('vibeaudit-report.md', 'utf8');
+            const body = report.length > 65000
+              ? report.substring(0, 65000) + '\n\n... (truncated)'
+              : report;
+
+            // Find existing VibeAudit comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.body.includes('🔍 VibeAudit Report')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Check Score Threshold
+        run: vibe-audit score . --exit-code --threshold 60

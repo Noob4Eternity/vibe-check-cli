@@ -26,6 +26,7 @@ scanning = [
     "detect-secrets>=1.4",
     "bandit>=1.7",
     "semgrep>=1.50",
+    "pip-audit>=2.6",
 ]
 dev = [
     "pytest>=7.0",

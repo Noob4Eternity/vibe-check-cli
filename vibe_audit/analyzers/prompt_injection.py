@@ -41,7 +41,14 @@ class PromptInjectionAnalyzer(BaseAnalyzer):
     """Detects prompt injection surfaces in LLM-using codebases."""
 
     def __init__(self, llm_client: Optional[LLMClient] = None) -> None:
-        self._llm = llm_client
+        if llm_client:
+            self._llm = llm_client
+        else:
+            try:
+                from vibe_audit.utils.llm_client import LLMClient
+                self._llm = LLMClient(provider="gemini")
+            except Exception:
+                self._llm = None
 
     @property
     def name(self) -> str:

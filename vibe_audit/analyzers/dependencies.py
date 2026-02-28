@@ -419,13 +419,17 @@ class DependencyAnalyzer(BaseAnalyzer):
             timeout=aiohttp.ClientTimeout(total=10),
             headers={"User-Agent": "vibe-audit/0.1.0"},
         ) as session:
-            tasks = [
+            # Registry checks + CVE audit run concurrently
+            registry_tasks = [
                 self._check_package(session, name, ecosystem, manifest)
                 for name, ecosystem, manifest in unique_packages
             ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            cve_task = asyncio.create_task(self._run_cve_audits(root))
 
-            for result in results:
+            registry_results = await asyncio.gather(*registry_tasks, return_exceptions=True)
+            cve_findings = await cve_task
+
+            for result in registry_results:
                 if isinstance(result, Exception):
                     logger.debug("Registry check failed: %s", result)
                     continue
@@ -433,6 +437,8 @@ class DependencyAnalyzer(BaseAnalyzer):
                     findings.extend(result)
                 elif result is not None:
                     findings.append(result)
+
+            findings.extend(cve_findings)
 
         logger.info("Dependency scan complete — %d finding(s)", len(findings))
         return findings
@@ -604,3 +610,174 @@ class DependencyAnalyzer(BaseAnalyzer):
         except Exception:
             pass
         return None
+
+    # ── CVE audit via subprocess ───────────────────────────────────
+
+    async def _run_cve_audits(self, root: Path) -> List[Finding]:
+        """Run npm audit and pip-audit concurrently for known CVEs."""
+        import shutil
+
+        tasks = []
+        if (root / "package.json").exists() and shutil.which("npm"):
+            tasks.append(self._run_npm_audit(root))
+        if any((root / f).exists() for f in ("requirements.txt", "pyproject.toml", "Pipfile")) and shutil.which("pip-audit"):
+            tasks.append(self._run_pip_audit(root))
+
+        if not tasks:
+            return []
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        findings: List[Finding] = []
+        for result in results:
+            if isinstance(result, list):
+                findings.extend(result)
+            elif isinstance(result, Exception):
+                logger.debug("CVE audit error: %s", result)
+        return findings
+
+    @staticmethod
+    async def _run_npm_audit(root: Path) -> List[Finding]:
+        """Run `npm audit --json` and convert to Findings."""
+        findings: List[Finding] = []
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "npm", "audit", "--json",
+                cwd=str(root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            data = json.loads(stdout.decode("utf-8", errors="replace"))
+
+            # npm audit v7+ format: { vulnerabilities: { package: { ... } } }
+            vulns = data.get("vulnerabilities", {})
+            for pkg_name, info in vulns.items():
+                severity_str = (info.get("severity") or "moderate").lower()
+                severity_map = {
+                    "critical": Severity.CRITICAL,
+                    "high": Severity.HIGH,
+                    "moderate": Severity.MEDIUM,
+                    "low": Severity.LOW,
+                    "info": Severity.INFO,
+                }
+                sev = severity_map.get(severity_str, Severity.MEDIUM)
+
+                # Extract advisory details
+                via = info.get("via", [])
+                cve_ids = []
+                titles = []
+                urls = []
+                for v in via:
+                    if isinstance(v, dict):
+                        if v.get("title"):
+                            titles.append(v["title"])
+                        if v.get("url"):
+                            urls.append(v["url"])
+                        if v.get("cve"):
+                            cve_ids.append(v["cve"])
+
+                fix_available = info.get("fixAvailable")
+                fix_str = ""
+                if isinstance(fix_available, dict):
+                    fix_str = f" Fix: update to {fix_available.get('name', pkg_name)}@{fix_available.get('version', 'latest')}"
+                elif fix_available:
+                    fix_str = " Run `npm audit fix` to resolve."
+
+                title_detail = titles[0] if titles else f"Known vulnerability in {pkg_name}"
+
+                findings.append(Finding(
+                    title=f"CVE: {pkg_name} — {title_detail}",
+                    severity=sev,
+                    category=Category.VULNERABLE_DEPENDENCY,
+                    file="package.json",
+                    description=(
+                        f"npm audit found a {severity_str} vulnerability in '{pkg_name}'. "
+                        f"{' | '.join(titles[:2])}"
+                        f"{' (' + ', '.join(cve_ids[:2]) + ')' if cve_ids else ''}"
+                    ),
+                    remediation=f"Update '{pkg_name}' to a patched version.{fix_str}",
+                    ai_prompt=f"Update '{pkg_name}' in package.json to fix {', '.join(cve_ids[:2]) or 'the known vulnerability'}.",
+                    evidence=" | ".join(urls[:2]) if urls else f"npm audit --json ({severity_str})",
+                    tool="npm-audit",
+                    cwe=cve_ids[0] if cve_ids else None,
+                ))
+
+            logger.info("npm audit: %d vulnerability(ies)", len(findings))
+
+        except FileNotFoundError:
+            logger.debug("npm not found — skipping npm audit")
+        except asyncio.TimeoutError:
+            logger.debug("npm audit timed out")
+        except json.JSONDecodeError:
+            logger.debug("npm audit returned non-JSON output")
+        except Exception as e:
+            logger.debug("npm audit failed: %s", e)
+
+        return findings
+
+    @staticmethod
+    async def _run_pip_audit(root: Path) -> List[Finding]:
+        """Run `pip-audit --format json` and convert to Findings."""
+        findings: List[Finding] = []
+
+        # Determine the requirements source
+        args = ["pip-audit", "--format", "json"]
+        if (root / "requirements.txt").exists():
+            args.extend(["-r", str(root / "requirements.txt")])
+        else:
+            args.append("--desc")
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                cwd=str(root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            data = json.loads(stdout.decode("utf-8", errors="replace"))
+
+            # pip-audit format: { dependencies: [ { name, version, vulns: [...] } ] }
+            for dep in data.get("dependencies", []):
+                dep_name = dep.get("name", "unknown")
+                dep_version = dep.get("version", "?")
+                for vuln in dep.get("vulns", []):
+                    vuln_id = vuln.get("id", "UNKNOWN")
+                    description = vuln.get("description", "No description available")
+                    fix_versions = vuln.get("fix_versions", [])
+
+                    findings.append(Finding(
+                        title=f"CVE: {dep_name}=={dep_version} — {vuln_id}",
+                        severity=Severity.HIGH,
+                        category=Category.VULNERABLE_DEPENDENCY,
+                        file="requirements.txt",
+                        description=(
+                            f"pip-audit found vulnerability {vuln_id} in "
+                            f"'{dep_name}=={dep_version}'. {description[:200]}"
+                        ),
+                        remediation=(
+                            f"Update '{dep_name}' to {', '.join(fix_versions)}"
+                            if fix_versions else
+                            f"Check for a patched version of '{dep_name}'"
+                        ),
+                        ai_prompt=(
+                            f"Update '{dep_name}' in requirements.txt to fix {vuln_id}."
+                            f" Safe versions: {', '.join(fix_versions)}" if fix_versions else ""
+                        ),
+                        evidence=f"https://osv.dev/vulnerability/{vuln_id}",
+                        tool="pip-audit",
+                        cwe=vuln_id,
+                    ))
+
+            logger.info("pip-audit: %d vulnerability(ies)", len(findings))
+
+        except FileNotFoundError:
+            logger.debug("pip-audit not found — skipping")
+        except asyncio.TimeoutError:
+            logger.debug("pip-audit timed out")
+        except json.JSONDecodeError:
+            logger.debug("pip-audit returned non-JSON output")
+        except Exception as e:
+            logger.debug("pip-audit failed: %s", e)
+
+        return findings
