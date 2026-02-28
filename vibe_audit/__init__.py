@@ -1,3 +1,3 @@
-"""vibe-audit: A Python library for auditing vibe-coded code."""
+"""vibe-audit: Security auditor for vibe-coded repos."""
 
 __version__ = "0.1.0"
