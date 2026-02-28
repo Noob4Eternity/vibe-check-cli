@@ -1,12 +1,22 @@
+"""Dependency analyzer (P4) — THE KILLER FEATURE.
+
+Detects hallucinated (non-existent) packages, typosquats, outdated/deprecated
+dependencies, and low-popularity suspicious packages by querying real registries.
+
+Merged: BaseAnalyzer integration + async HTTP (P3) with robust parsing,
+semver version comparison, and deprecation detection (P4-teammate).
+"""
+
 from __future__ import annotations
+
+import asyncio
+import json
+import logging
 import os
 import re
-import json
-import math
-import sys
-import time
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 try:
     import tomllib  # Python 3.11+
@@ -16,298 +26,260 @@ except ImportError:
     except ImportError:
         tomllib = None  # type: ignore[assignment]
 
-# filepath: /Users/kron/Coding/Projects/hackx4.0/vibe_audit/analyzers/dependencies.py
-"""
-Module: dependencies
-Purpose: scan a git repository for package config files (requirements.txt, package.json),
-         extract packages and check their registry metadata on PyPI and npm.
-"""
+import aiohttp
 
-import urllib.request
-import urllib.parse
+from vibe_audit.analyzers.base import BaseAnalyzer
+from vibe_audit.models.finding import Category, Finding, Severity
+
+logger = logging.getLogger("vibe_audit.dependencies")
 
 
-def find_config_files(root: str) -> List[str]:
-    matches = []
-    for dirpath, _, filenames in os.walk(root):
-        for fname in filenames:
-            if fname in ("requirements.txt", "package.json", "pyproject.toml"):
-                matches.append(os.path.join(dirpath, fname))
-    return matches
+# ── Popular package lists for typosquat detection ──────────────────
+
+_TOP_PYPI = [
+    "requests", "flask", "django", "numpy", "pandas", "fastapi", "sqlalchemy",
+    "pydantic", "boto3", "celery", "redis", "pytest", "pillow", "scipy",
+    "scikit-learn", "tensorflow", "torch", "transformers", "httpx", "aiohttp",
+    "beautifulsoup4", "selenium", "scrapy", "gunicorn", "uvicorn", "jinja2",
+    "click", "typer", "rich", "cryptography", "paramiko", "pyyaml", "toml",
+    "python-dotenv", "openai", "anthropic", "langchain", "streamlit", "gradio",
+    "matplotlib", "seaborn", "black", "flake8", "mypy", "ruff",
+]
+
+_TOP_NPM = [
+    "react", "next", "express", "axios", "lodash", "typescript", "webpack",
+    "eslint", "prettier", "jest", "mocha", "chai", "vue", "angular", "svelte",
+    "tailwindcss", "postcss", "vite", "rollup", "babel", "moment", "dayjs",
+    "uuid", "dotenv", "cors", "jsonwebtoken", "bcrypt", "mongoose", "prisma",
+    "zod", "yup", "formik", "redux", "zustand", "socket.io", "nodemon",
+    "chalk", "commander", "inquirer", "puppeteer", "playwright", "cheerio",
+    "openai", "langchain", "sharp", "multer",
+]
 
 
-def parse_requirements(path: str) -> List[Dict[str, Optional[str]]]:
-    """
-    Returns list of dicts: {'name': <pkg-name>, 'requested': <version-spec or None>, 'source': path}
-    Very permissive parser: skips VCS/editable installs and comments.
-    """
-    entries = []
-    ver_split = re.compile(r'([<>=!~]{1,2})')
-    with open(path, "r", encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("-r") or line.startswith("--requirement"):
-                # could include other files; skip handling includes for simplicity
-                continue
-            if line.startswith("-e") or line.startswith("git+"):
-                # editable/vcs installs - skip
-                continue
-            # cut off inline comments
-            line = line.split("#", 1)[0].strip()
-            # remove extras like package[extra]
-            name_part = line.split(";", 1)[0].strip()
-            # split on version specifiers; keep requested specifier if present
-            m = ver_split.search(name_part)
-            if m:
-                idx = m.start()
-                pkg = name_part[:idx].strip()
-                requested = name_part[idx:].strip()
-            else:
-                pkg = name_part.strip()
-                requested = None
-            # strip extras in brackets
-            pkg = re.sub(r"\[.*\]", "", pkg)
-            if pkg:
-                entries.append({"name": pkg, "requested": requested, "source": path})
-    return entries
+# ── Registry URLs ──────────────────────────────────────────────────
 
+REGISTRY_URLS: Dict[str, str] = {
+    "pypi": "https://pypi.org/pypi/{name}/json",
+    "npm": "https://registry.npmjs.org/{name}",
+    "rubygems": "https://rubygems.org/api/v1/gems/{name}.json",
+    "crates": "https://crates.io/api/v1/crates/{name}",
+}
 
-def parse_pyproject_toml(path: str) -> List[Dict[str, Optional[str]]]:
-    """
-    Extract dependencies from pyproject.toml.
-    Supports [project.dependencies], [project.optional-dependencies],
-    and [tool.poetry.dependencies] / [tool.poetry.dev-dependencies].
-    Returns list of dicts: {'name': name, 'requested': versionSpec or None, 'source': path}
-    """
-    entries = []
-    if tomllib is None:
-        return entries
-    try:
-        with open(path, "rb") as fh:
-            data = tomllib.load(fh)
-    except Exception:
-        return entries
-
-    ver_split = re.compile(r'([<>=!~]{1,2})')
-
-    def _parse_pep508(spec: str) -> tuple[str, Optional[str]]:
-        """Split a PEP 508 dependency string into (name, version_spec)."""
-        spec = spec.split(";", 1)[0].strip()  # strip env markers
-        spec = re.sub(r"\[.*?\]", "", spec)   # strip extras
-        m = ver_split.search(spec)
-        if m:
-            return spec[:m.start()].strip(), spec[m.start():].strip()
-        return spec.strip(), None
-
-    # [project.dependencies]  — PEP 517/518 list of PEP 508 strings
-    project = data.get("project") or {}
-    for dep in project.get("dependencies") or []:
-        name, requested = _parse_pep508(dep)
-        if name:
-            entries.append({"name": name, "requested": requested, "source": path})
-
-    # [project.optional-dependencies]  — dict of group -> list of PEP 508 strings
-    for group_deps in (project.get("optional-dependencies") or {}).values():
-        for dep in group_deps or []:
-            name, requested = _parse_pep508(dep)
-            if name:
-                entries.append({"name": name, "requested": requested, "source": path})
-
-    # [tool.poetry.dependencies] / [tool.poetry.dev-dependencies]  — dict of name -> version
-    poetry = (data.get("tool") or {}).get("poetry") or {}
-    for key in ("dependencies", "dev-dependencies", "group"):
-        if key == "group":
-            # poetry groups: [tool.poetry.group.<name>.dependencies]
-            for group in (poetry.get("group") or {}).values():
-                for name, spec in (group.get("dependencies") or {}).items():
-                    if name.lower() == "python":
-                        continue
-                    requested = spec if isinstance(spec, str) else None
-                    entries.append({"name": name, "requested": requested, "source": path})
-        else:
-            for name, spec in (poetry.get(key) or {}).items():
-                if name.lower() == "python":
-                    continue
-                requested = spec if isinstance(spec, str) else None
-                entries.append({"name": name, "requested": requested, "source": path})
-
-    return entries
-
-
-def parse_package_json(path: str) -> List[Dict[str, Optional[str]]]:
-    """
-    Extract package names from dependencies, devDependencies, optionalDependencies, peerDependencies.
-    Returns list of dicts: {'name': name, 'requested': versionSpec, 'source': path}
-    """
-    entries = []
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except Exception:
-        return entries
-    for key in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
-        deps = data.get(key) or {}
-        if isinstance(deps, dict):
-            for name, spec in deps.items():
-                entries.append({"name": name, "requested": spec, "source": path})
-    return entries
-
-
-def _http_get_json(url: str, timeout: int = 10) -> Dict[str, Any]:
-    req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "vibe-audit/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-        try:
-            return json.loads(raw.decode("utf-8", errors="replace"))
-        except Exception:
-            return {}
-
-
-def check_pypi(name: str) -> Dict[str, Any]:
-    """
-    Query PyPI JSON API for package metadata.
-    """
-    encoded = urllib.parse.quote(name, safe="")
-    url = f"https://pypi.org/pypi/{encoded}/json"
-    try:
-        data = _http_get_json(url)
-        if not data:
-            return {"found": False, "registry_url": url, "error": "no-data"}
-        info = data.get("info", {}) or {}
-        releases = data.get("releases", {}) or {}
-        latest_version = info.get("version")
-        latest_release_date = None
-        if latest_version and latest_version in releases:
-            files = releases.get(latest_version) or []
-            times = [f.get("upload_time_iso_8601") for f in files if f.get("upload_time_iso_8601")]
-            if times:
-                latest_release_date = max(times)
-        return {
-            "found": True,
-            "registry_url": url,
-            "latest_version": latest_version,
-            "latest_release_date": latest_release_date,
-            "summary": info.get("summary"),
-        }
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return {"found": False, "registry_url": url, "status": 404}
-        return {"found": False, "registry_url": url, "error": str(e)}
-    except Exception as e:
-        return {"found": False, "registry_url": url, "error": str(e)}
-
-
-def check_npm(name: str) -> Dict[str, Any]:
-    """
-    Query npm registry for package metadata.
-    """
-    encoded = urllib.parse.quote(name, safe="")
-    url = f"https://registry.npmjs.org/{encoded}"
-    try:
-        data = _http_get_json(url)
-        if not data:
-            return {"found": False, "registry_url": url, "error": "no-data"}
-        dist_tags = data.get("dist-tags") or {}
-        latest_version = dist_tags.get("latest")
-        time_info = data.get("time") or {}
-        latest_release_date = time_info.get(latest_version) if latest_version else time_info.get("modified")
-        description = data.get("description")
-        return {
-            "found": True,
-            "registry_url": url,
-            "latest_version": latest_version,
-            "latest_release_date": latest_release_date,
-            "summary": description,
-        }
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return {"found": False, "registry_url": url, "status": 404}
-        return {"found": False, "registry_url": url, "error": str(e)}
-    except Exception as e:
-        return {"found": False, "registry_url": url, "error": str(e)}
-
-
-def determine_registry(name: str, source_path: str) -> str:
-    """
-    Heuristic: if source file is requirements.txt or pyproject.toml -> pypi,
-    if package.json -> npm.
-    Fallback: only scoped packages (starting with @) are unambiguously npm;
-    everything else defaults to pypi (hyphens are common in Python package names).
-    """
-    if source_path.endswith("requirements.txt") or source_path.endswith("pyproject.toml"):
-        return "pypi"
-    if source_path.endswith("package.json"):
-        return "npm"
-    # fallback: only scoped npm packages (e.g. @scope/pkg) are unambiguously npm
-    if name.startswith("@"):
-        return "npm"
-    return "pypi"
-
-
-def check_entries(entries: List[Dict[str, Optional[str]]]) -> List[Dict[str, Any]]:
-    results = []
-    seen = set()
-    for e in entries:
-        name = e.get("name")
-        source = e.get("source", "")
-        requested = e.get("requested")
-        if not name:
-            continue
-        key = (name, determine_registry(name, source))
-        if key in seen:
-            continue
-        seen.add(key)
-        registry = determine_registry(name, source)
-        if registry == "pypi":
-            meta = check_pypi(name)
-        else:
-            meta = check_npm(name)
-        out = {
-            "package": name,
-            "package_type": registry,
-            "requested": requested,
-            "source_file": source,
-        }
-        out.update(meta)
-        results.append(out)
-        # slight pause to be polite to registries
-        time.sleep(0.1)
-    return results
-
-
-def scan_repository(root: str) -> List[Dict[str, Any]]:
-    files = find_config_files(root)
-    all_entries: List[Dict[str, Optional[str]]] = []
-    for f in files:
-        if f.endswith("requirements.txt"):
-            all_entries.extend(parse_requirements(f))
-        elif f.endswith("package.json"):
-            all_entries.extend(parse_package_json(f))
-        elif f.endswith("pyproject.toml"):
-            all_entries.extend(parse_pyproject_toml(f))
-    return check_entries(all_entries)
-
-
-# ---------------------------------------------------------------------------
-# Health scoring
-# ---------------------------------------------------------------------------
-
-# Individual package scores (out of 10)
-_SCORE_UP_TO_DATE        = 10
-_SCORE_PATCH_BEHIND      =  9
-_SCORE_MINOR_BEHIND      =  7   # 1–2 minor versions behind
-_SCORE_MANY_MINOR_BEHIND =  5   # 3+ minor versions behind
-_SCORE_MAJOR_BEHIND_ONE  =  3   # one major version behind
-_SCORE_MAJOR_BEHIND_MANY =  1   # two or more major versions behind
-_SCORE_DEPRECATED        =  0   # no release in > 3 years
-_SCORE_NOT_FOUND         =  0   # 404 / hallucinated
-_SCORE_UNKNOWN_VERSION   =  8   # found but version info unavailable
-
-# A package is considered deprecated when its last release is older than this
 _DEPRECATION_YEARS = 3
 
+
+# ══════════════════════════════════════════════════════════════════
+# Manifest parsers
+# ══════════════════════════════════════════════════════════════════
+
+_VER_SPLIT = re.compile(r'([<>=!~]{1,2})')
+
+
+def _parse_requirements_txt(path: Path) -> List[Tuple[str, str]]:
+    """Parse requirements.txt → list of (package_name, ecosystem)."""
+    packages = []
+    for raw in path.read_text(errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith(("-r", "--requirement", "-e", "git+")):
+            continue
+        # Strip inline comments and env markers
+        line = line.split("#", 1)[0].strip()
+        name_part = line.split(";", 1)[0].strip()
+        # Split on version specifier
+        m = _VER_SPLIT.search(name_part)
+        name = name_part[:m.start()].strip() if m else name_part.strip()
+        # Strip extras in brackets
+        name = re.sub(r"\[.*\]", "", name).strip()
+        if name:
+            packages.append((name.lower(), "pypi"))
+    return packages
+
+
+def _parse_pyproject_toml(path: Path) -> List[Tuple[str, str]]:
+    """Extract dependencies from pyproject.toml.
+
+    Supports [project.dependencies], [project.optional-dependencies],
+    and [tool.poetry.dependencies] / [tool.poetry.dev-dependencies].
+    Falls back to regex parsing if tomllib is unavailable.
+    """
+    packages = []
+
+    if tomllib is not None:
+        try:
+            with open(path, "rb") as fh:
+                data = tomllib.load(fh)
+        except Exception:
+            data = None
+
+        if data:
+            def _parse_pep508(spec: str) -> Optional[str]:
+                """Extract package name from a PEP 508 string."""
+                spec = spec.split(";", 1)[0].strip()
+                spec = re.sub(r"\[.*?\]", "", spec)
+                m = _VER_SPLIT.search(spec)
+                return spec[:m.start()].strip() if m else spec.strip()
+
+            # [project.dependencies]
+            project = data.get("project") or {}
+            for dep in project.get("dependencies") or []:
+                name = _parse_pep508(dep)
+                if name:
+                    packages.append((name.lower(), "pypi"))
+
+            # [project.optional-dependencies]
+            for group_deps in (project.get("optional-dependencies") or {}).values():
+                for dep in group_deps or []:
+                    name = _parse_pep508(dep)
+                    if name:
+                        packages.append((name.lower(), "pypi"))
+
+            # [tool.poetry.dependencies / dev-dependencies / groups]
+            poetry = (data.get("tool") or {}).get("poetry") or {}
+            for key in ("dependencies", "dev-dependencies"):
+                for name in (poetry.get(key) or {}):
+                    if name.lower() != "python":
+                        packages.append((name.lower(), "pypi"))
+            for group in (poetry.get("group") or {}).values():
+                for name in (group.get("dependencies") or {}):
+                    if name.lower() != "python":
+                        packages.append((name.lower(), "pypi"))
+
+            return packages
+
+    # Fallback: simple regex parsing
+    content = path.read_text(errors="ignore")
+    in_deps = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("dependencies") and "=" in stripped:
+            in_deps = True
+            continue
+        if in_deps:
+            if stripped == "]":
+                in_deps = False
+                continue
+            match = re.match(r'["\']([a-zA-Z0-9_-]+)', stripped)
+            if match:
+                packages.append((match.group(1).lower(), "pypi"))
+    return packages
+
+
+def _parse_package_json(path: Path) -> List[Tuple[str, str]]:
+    """Parse package.json → list of (package_name, 'npm')."""
+    packages = []
+    try:
+        data = json.loads(path.read_text(errors="ignore"))
+    except json.JSONDecodeError:
+        return []
+    for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+        deps = data.get(section, {})
+        if isinstance(deps, dict):
+            for name in deps:
+                packages.append((name.lower(), "npm"))
+    return packages
+
+
+def _parse_gemfile(path: Path) -> List[Tuple[str, str]]:
+    """Parse Gemfile → list of (gem_name, 'rubygems')."""
+    packages = []
+    for line in path.read_text(errors="ignore").splitlines():
+        match = re.match(r"^\s*gem\s+['\"]([^'\"]+)['\"]", line)
+        if match:
+            packages.append((match.group(1).lower(), "rubygems"))
+    return packages
+
+
+def _parse_cargo_toml(path: Path) -> List[Tuple[str, str]]:
+    """Parse Cargo.toml → list of (crate_name, 'crates')."""
+    packages = []
+    in_deps = False
+    for line in path.read_text(errors="ignore").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and "dependencies" in stripped:
+            in_deps = True
+            continue
+        if stripped.startswith("[") and "dependencies" not in stripped:
+            in_deps = False
+            continue
+        if in_deps:
+            match = re.match(r'^([a-zA-Z0-9_-]+)\s*=', stripped)
+            if match:
+                packages.append((match.group(1).lower(), "crates"))
+    return packages
+
+
+def _parse_pipfile(path: Path) -> List[Tuple[str, str]]:
+    """Parse Pipfile."""
+    packages = []
+    in_packages = False
+    for line in path.read_text(errors="ignore").splitlines():
+        stripped = line.strip()
+        if stripped in ("[packages]", "[dev-packages]"):
+            in_packages = True
+            continue
+        if stripped.startswith("["):
+            in_packages = False
+            continue
+        if in_packages:
+            match = re.match(r'^([a-zA-Z0-9_-]+)\s*=', stripped)
+            if match:
+                packages.append((match.group(1).lower(), "pypi"))
+    return packages
+
+
+MANIFEST_PARSERS = {
+    "requirements.txt": _parse_requirements_txt,
+    "pyproject.toml": _parse_pyproject_toml,
+    "package.json": _parse_package_json,
+    "Gemfile": _parse_gemfile,
+    "Cargo.toml": _parse_cargo_toml,
+    "Pipfile": _parse_pipfile,
+}
+
+
+# ══════════════════════════════════════════════════════════════════
+# Levenshtein + typosquat detection
+# ══════════════════════════════════════════════════════════════════
+
+def _levenshtein(s1: str, s2: str) -> int:
+    """Compute Levenshtein distance between two strings."""
+    if len(s1) < len(s2):
+        return _levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev_row = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        curr_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            cost = 0 if c1 == c2 else 1
+            curr_row.append(min(
+                curr_row[j] + 1,
+                prev_row[j + 1] + 1,
+                prev_row[j] + cost,
+            ))
+        prev_row = curr_row
+    return prev_row[-1]
+
+
+def _check_typosquat(name: str, ecosystem: str) -> Optional[str]:
+    """Check if a package name is within Levenshtein distance 1-2 of a popular package."""
+    top_packages = _TOP_PYPI if ecosystem == "pypi" else _TOP_NPM if ecosystem == "npm" else []
+    # Skip if the package itself is already a known popular package
+    if name in top_packages:
+        return None
+    for popular in top_packages:
+        dist = _levenshtein(name, popular)
+        if 1 <= dist <= 2 and name != popular:
+            return popular
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════
+# Version comparison (from P4 teammate)
+# ══════════════════════════════════════════════════════════════════
 
 def _parse_semver(v: str) -> Tuple[int, ...]:
     """Parse a version string into a tuple of ints, e.g. '2.3.1' -> (2, 3, 1)."""
@@ -320,13 +292,7 @@ def _parse_semver(v: str) -> Tuple[int, ...]:
 
 
 def _extract_base_version(requested: Optional[str]) -> Optional[str]:
-    """
-    Pull the first concrete version number out of a specifier string.
-    e.g.  '>=2.25,<3.0'  -> '2.25'
-          '==1.4.2'       -> '1.4.2'
-          '^4.17.1'       -> '4.17.1'
-          '~=3.1'         -> '3.1'
-    """
+    """Pull the first concrete version from a specifier, e.g. '>=2.25,<3.0' -> '2.25'."""
     if not requested:
         return None
     m = re.search(r"(\d[\d.]*)", requested)
@@ -334,7 +300,7 @@ def _extract_base_version(requested: Optional[str]) -> Optional[str]:
 
 
 def _years_since(iso_date: str) -> float:
-    """Return fractional years elapsed since an ISO-8601 date string."""
+    """Return fractional years since an ISO-8601 date string."""
     try:
         dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
         return (datetime.now(timezone.utc) - dt).days / 365.25
@@ -342,170 +308,299 @@ def _years_since(iso_date: str) -> float:
         return 0.0
 
 
-def _score_package(entry: Dict[str, Any]) -> Tuple[int, str]:
-    """
-    Score a single package out of 10 and return a human-readable reason.
+def _check_version_staleness(
+    requested_version: Optional[str],
+    latest_version: Optional[str],
+    latest_release_date: Optional[str],
+) -> Optional[Tuple[Severity, str]]:
+    """Compare requested vs latest version and check deprecation.
 
-    Scoring bands
-    -------------
-    10  up to date
-     9  patch version behind
-     7  1–2 minor versions behind
-     5  3+ minor versions behind
-     3  one major version behind
-     1  two or more major versions behind
-     0  deprecated  (no release in > 3 years)
-     0  not found   (hallucinated / wrong name)
-     8  found but version info insufficient to compare
+    Returns (Severity, description) or None if up-to-date.
     """
-    if not entry.get("found"):
-        return _SCORE_NOT_FOUND, "not found – possibly hallucinated or wrong name"
-
-    # Deprecation check (stale regardless of version)
-    release_date = entry.get("latest_release_date")
-    if release_date:
-        age = _years_since(release_date)
+    # Deprecation check
+    if latest_release_date:
+        age = _years_since(latest_release_date)
         if age >= _DEPRECATION_YEARS:
-            return _SCORE_DEPRECATED, f"deprecated – last release {age:.1f} years ago"
+            return (Severity.HIGH, f"deprecated — last release {age:.1f} years ago")
 
-    latest_str = entry.get("latest_version")
-    requested_str = _extract_base_version(entry.get("requested"))
+    if not latest_version or not requested_version:
+        return None
 
-    if not latest_str:
-        return _SCORE_UNKNOWN_VERSION, "found – version info unavailable"
+    req_base = _extract_base_version(requested_version)
+    if not req_base:
+        return None
 
-    if not requested_str:
-        # No pinned version – assume user is getting latest
-        return _SCORE_UP_TO_DATE, "up to date (no version constraint)"
+    latest = _parse_semver(latest_version)
+    requested = _parse_semver(req_base)
 
-    latest   = _parse_semver(latest_str)
-    requested = _parse_semver(requested_str)
+    # Pad to 3 elements
+    lat = (latest + (0, 0, 0))[:3]
+    req = (requested + (0, 0, 0))[:3]
 
-    # Pad to same length
-    length = max(len(latest), len(requested))
-    latest    = latest    + (0,) * (length - len(latest))
-    requested = requested + (0,) * (length - len(requested))
-
-    lat_maj, lat_min, lat_pat = (latest + (0, 0, 0))[:3]
-    req_maj, req_min, req_pat = (requested + (0, 0, 0))[:3]
-
-    maj_diff = lat_maj - req_maj
-    min_diff = lat_min - req_min if maj_diff == 0 else 0
-    pat_diff = lat_pat - req_pat if maj_diff == 0 and min_diff == 0 else 0
+    maj_diff = lat[0] - req[0]
+    min_diff = lat[1] - req[1] if maj_diff == 0 else 0
 
     if maj_diff >= 2:
-        return _SCORE_MAJOR_BEHIND_MANY, f"{maj_diff} major versions behind ({requested_str} → {latest_str})"
+        return (Severity.HIGH, f"{maj_diff} major versions behind ({req_base} → {latest_version})")
     if maj_diff == 1:
-        return _SCORE_MAJOR_BEHIND_ONE,  f"1 major version behind ({requested_str} → {latest_str})"
+        return (Severity.MEDIUM, f"1 major version behind ({req_base} → {latest_version})")
     if min_diff >= 3:
-        return _SCORE_MANY_MINOR_BEHIND, f"{min_diff} minor versions behind ({requested_str} → {latest_str})"
-    if min_diff in (1, 2):
-        return _SCORE_MINOR_BEHIND,      f"{min_diff} minor version(s) behind ({requested_str} → {latest_str})"
-    if pat_diff > 0:
-        return _SCORE_PATCH_BEHIND,      f"patch behind ({requested_str} → {latest_str})"
-    if latest > requested:
-        # newer but difference is within patch — treat as patch behind
-        return _SCORE_PATCH_BEHIND,      f"slightly behind ({requested_str} → {latest_str})"
-
-    return _SCORE_UP_TO_DATE, f"up to date ({latest_str})"
+        return (Severity.MEDIUM, f"{min_diff} minor versions behind ({req_base} → {latest_version})")
+    # Patch or 1-2 minor behind — not worth a finding
+    return None
 
 
-def compute_health_score(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Aggregate per-package scores into an overall repository health score out of 10.
+# ══════════════════════════════════════════════════════════════════
+# Main Analyzer
+# ══════════════════════════════════════════════════════════════════
 
-    The score is the mean of all individual package scores, normalised to [0, 10].
-    An empty dependency list scores 10 (nothing to be wrong).
+class DependencyAnalyzer(BaseAnalyzer):
+    """Checks package registries for hallucinated, typosquatted, outdated, and suspicious deps."""
 
-    Returns a report with:
-      - score            : float, 0-10
-      - total_packages   : int
-      - summary          : human-readable one-liner
-      - up_to_date       : list of package names
-      - outdated         : list of {package, requested, latest, reason}
-      - deprecated       : list of {package, requested, latest, reason}
-      - not_found        : list of {package, requested, reason}
-    """
-    if not results:
-        return {
-            "score":          10.0,
-            "total_packages": 0,
-            "summary":        "No dependencies found.",
-            "up_to_date":     [],
-            "outdated":       [],
-            "deprecated":     [],
-            "not_found":      [],
-        }
+    @property
+    def name(self) -> str:
+        return "dependencies"
 
-    categories: Dict[str, list] = {
-        "up_to_date":  [],
-        "outdated":    [],
-        "deprecated":  [],
-        "not_found":   [],
-    }
+    @property
+    def tier(self) -> int:
+        return 2
 
-    score_sum = 0
-    for entry in results:
-        pkg_score, reason = _score_package(entry)
-        score_sum += pkg_score
-        name     = entry["package"]
-        req      = entry.get("requested")
-        latest   = entry.get("latest_version")
+    async def analyze(
+        self, repo_path: str, config: dict | None = None
+    ) -> List[Finding]:
+        # 1. Discover manifest files and parse package names
+        all_packages: List[Tuple[str, str, str]] = []  # (name, ecosystem, manifest_file)
+        root = Path(repo_path)
 
-        if not entry.get("found"):
-            categories["not_found"].append({
-                "package":   name,
-                "requested": req,
-                "reason":    reason,
-            })
-        elif pkg_score == 0:  # found but deprecated
-            categories["deprecated"].append({
-                "package":   name,
-                "requested": req,
-                "latest":    latest,
-                "reason":    reason,
-            })
-        elif pkg_score == _SCORE_UP_TO_DATE:
-            categories["up_to_date"].append(name)
-        else:
-            categories["outdated"].append({
-                "package":   name,
-                "requested": req,
-                "latest":    latest,
-                "reason":    reason,
-            })
+        for manifest_name, parser in MANIFEST_PARSERS.items():
+            # Check root level
+            root_manifest = root / manifest_name
+            if root_manifest.exists():
+                try:
+                    parsed = parser(root_manifest)
+                    for pkg_name, ecosystem in parsed:
+                        all_packages.append((pkg_name, ecosystem, str(root_manifest.relative_to(root))))
+                except Exception as e:
+                    logger.warning("Failed to parse %s: %s", root_manifest, e)
 
-    total = len(results)
-    score = round(score_sum / total, 1)
+            # Monorepo support — also check subdirectories
+            for candidate in root.rglob(manifest_name):
+                rel = candidate.relative_to(root)
+                if any(p.startswith(".") or p in ("node_modules", ".venv", "venv", "__pycache__") for p in rel.parts):
+                    continue
+                if candidate == root_manifest:
+                    continue
+                try:
+                    parsed = parser(candidate)
+                    for pkg_name, ecosystem in parsed:
+                        all_packages.append((pkg_name, ecosystem, str(rel)))
+                except Exception as e:
+                    logger.warning("Failed to parse %s: %s", candidate, e)
 
-    # Human-readable summary
-    parts = []
-    if categories["up_to_date"]:
-        parts.append(f"{len(categories['up_to_date'])} up to date")
-    if categories["outdated"]:
-        parts.append(f"{len(categories['outdated'])} outdated")
-    if categories["deprecated"]:
-        parts.append(f"{len(categories['deprecated'])} deprecated")
-    if categories["not_found"]:
-        parts.append(f"{len(categories['not_found'])} not found / hallucinated")
-    summary = ", ".join(parts) + f" ({total} total)"
+        if not all_packages:
+            logger.info("No manifest files found")
+            return []
 
-    return {
-        "score":          score,
-        "total_packages": total,
-        "summary":        summary,
-        **categories,
-    }
+        # Deduplicate
+        seen: set[Tuple[str, str]] = set()
+        unique_packages = []
+        for name, eco, manifest in all_packages:
+            key = (name, eco)
+            if key not in seen:
+                seen.add(key)
+                unique_packages.append((name, eco, manifest))
 
+        logger.info("Found %d unique packages across %d manifest files",
+                     len(unique_packages), len(set(m for _, _, m in unique_packages)))
 
-def main(argv: Optional[List[str]] = None) -> int:
-    root = os.getcwd() if not argv else (argv[0] if argv else os.getcwd())
-    results  = scan_repository(root)
-    report   = compute_health_score(results)
-    json.dump(report, sys.stdout, indent=2, ensure_ascii=False)
-    sys.stdout.write("\n")
-    return 0
+        # 2. Check all packages against real registries in parallel
+        findings: List[Finding] = []
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=10),
+            headers={"User-Agent": "vibe-audit/0.1.0"},
+        ) as session:
+            tasks = [
+                self._check_package(session, name, ecosystem, manifest)
+                for name, ecosystem, manifest in unique_packages
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.debug("Registry check failed: %s", result)
+                    continue
+                if isinstance(result, list):
+                    findings.extend(result)
+                elif result is not None:
+                    findings.append(result)
 
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+        logger.info("Dependency scan complete — %d finding(s)", len(findings))
+        return findings
+
+    async def _check_package(
+        self,
+        session: aiohttp.ClientSession,
+        name: str,
+        ecosystem: str,
+        manifest: str,
+    ) -> Optional[Finding] | List[Finding]:
+        """Check a single package against its registry."""
+        url_template = REGISTRY_URLS.get(ecosystem)
+        if not url_template:
+            return None
+
+        url = url_template.format(name=name)
+
+        try:
+            async with session.get(url) as resp:
+                if resp.status == 404:
+                    # ── HALLUCINATED PACKAGE ─────────────────────
+                    similar = _check_typosquat(name, ecosystem)
+                    suggestion = f" Did you mean '{similar}'?" if similar else ""
+                    return Finding(
+                        title=f"Hallucinated Package: {name}",
+                        severity=Severity.CRITICAL,
+                        category=Category.HALLUCINATED_DEPENDENCY,
+                        file=manifest,
+                        description=(
+                            f"Package '{name}' does not exist on "
+                            f"{ecosystem.upper()} (HTTP 404). "
+                            f"Likely hallucinated by an LLM.{suggestion}"
+                        ),
+                        remediation=(
+                            f"Remove '{name}' from {manifest}."
+                            + (f" Use '{similar}' instead." if similar else
+                               " Find a real package that provides the needed functionality.")
+                        ),
+                        ai_prompt=(
+                            f"The package '{name}' in {manifest} doesn't exist. "
+                            f"{'Replace it with ' + similar + ' and update all imports.' if similar else 'Find a real alternative and update imports.'}"
+                        ),
+                        evidence=f"{url} → 404 Not Found",
+                        tool="dependency-checker",
+                    )
+
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    result_findings: List[Finding] = []
+
+                    # Extract version info from registry response
+                    latest_version, latest_release_date, requested = self._extract_metadata(
+                        data, ecosystem, name
+                    )
+
+                    # Check for outdated / deprecated
+                    staleness = _check_version_staleness(
+                        requested, latest_version, latest_release_date
+                    )
+                    if staleness:
+                        sev, desc = staleness
+                        result_findings.append(Finding(
+                            title=f"Outdated Package: {name}",
+                            severity=sev,
+                            category=Category.VULNERABLE_DEPENDENCY,
+                            file=manifest,
+                            description=f"Package '{name}' is {desc}.",
+                            remediation=f"Update '{name}' to version {latest_version}.",
+                            ai_prompt=f"Update '{name}' in {manifest} to latest version {latest_version}.",
+                            evidence=f"Requested: {requested or 'unpinned'}, Latest: {latest_version}",
+                            tool="dependency-checker",
+                            confidence=0.9,
+                        ))
+
+                    # Check for low downloads (suspicious)
+                    weekly_downloads = self._get_downloads(data, ecosystem)
+                    if weekly_downloads is not None and weekly_downloads < 100:
+                        result_findings.append(Finding(
+                            title=f"Suspicious Low-Download Package: {name}",
+                            severity=Severity.HIGH,
+                            category=Category.VULNERABLE_DEPENDENCY,
+                            file=manifest,
+                            description=(
+                                f"Package '{name}' has only {weekly_downloads} "
+                                f"weekly downloads on {ecosystem.upper()}. "
+                                f"Low-popularity packages are higher risk for "
+                                f"supply chain attacks."
+                            ),
+                            remediation=f"Verify that '{name}' is the correct package.",
+                            ai_prompt=f"The package '{name}' in {manifest} has very few downloads. Verify it's legitimate.",
+                            evidence=f"{weekly_downloads} weekly downloads",
+                            tool="dependency-checker",
+                        ))
+
+                    # Check for typosquat (only if the package actually exists)
+                    similar = _check_typosquat(name, ecosystem)
+                    if similar:
+                        result_findings.append(Finding(
+                            title=f"Possible Typosquat: {name}",
+                            severity=Severity.MEDIUM,
+                            category=Category.VULNERABLE_DEPENDENCY,
+                            file=manifest,
+                            description=(
+                                f"Package '{name}' is very similar to popular "
+                                f"package '{similar}' (Levenshtein distance ≤ 2). "
+                                f"This could be a typosquat or a typo."
+                            ),
+                            remediation=f"Verify you intend to use '{name}' and not '{similar}'.",
+                            ai_prompt=f"Check if '{name}' in {manifest} should be '{similar}' instead.",
+                            evidence=f"Levenshtein distance to '{similar}' ≤ 2",
+                            tool="dependency-checker",
+                            confidence=0.7,
+                        ))
+
+                    return result_findings if result_findings else None
+
+        except asyncio.TimeoutError:
+            logger.debug("Timeout checking %s on %s", name, ecosystem)
+        except Exception as e:
+            logger.debug("Error checking %s on %s: %s", name, ecosystem, e)
+
+        return None
+
+    @staticmethod
+    def _extract_metadata(
+        data: dict, ecosystem: str, name: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Extract (latest_version, latest_release_date, requested_version) from registry data."""
+        try:
+            if ecosystem == "pypi":
+                info = data.get("info", {}) or {}
+                releases = data.get("releases", {}) or {}
+                latest_version = info.get("version")
+                latest_release_date = None
+                if latest_version and latest_version in releases:
+                    files = releases.get(latest_version) or []
+                    times = [f.get("upload_time_iso_8601") for f in files if f.get("upload_time_iso_8601")]
+                    if times:
+                        latest_release_date = max(times)
+                return latest_version, latest_release_date, None
+
+            elif ecosystem == "npm":
+                dist_tags = data.get("dist-tags") or {}
+                latest_version = dist_tags.get("latest")
+                time_info = data.get("time") or {}
+                latest_release_date = time_info.get(latest_version) if latest_version else time_info.get("modified")
+                return latest_version, latest_release_date, None
+
+            elif ecosystem == "rubygems":
+                return data.get("version"), None, None
+
+            elif ecosystem == "crates":
+                crate = data.get("crate", {})
+                return crate.get("newest_version"), crate.get("updated_at"), None
+
+        except Exception:
+            pass
+        return None, None, None
+
+    @staticmethod
+    def _get_downloads(data: dict, ecosystem: str) -> Optional[int]:
+        """Extract download count from registry response."""
+        try:
+            if ecosystem == "rubygems":
+                return data.get("downloads")
+            elif ecosystem == "crates":
+                return data.get("crate", {}).get("recent_downloads")
+        except Exception:
+            pass
+        return None
