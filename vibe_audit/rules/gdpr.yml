@@ -1,2 +1,102 @@
 # GDPR compliance rules (P2)
-rules: []
+rules:
+  # -----------------------------------------------------------------------
+  # 1. PII fields logged / printed
+  # -----------------------------------------------------------------------
+  - id: va-pii-in-logs
+    patterns:
+      - pattern-either:
+          # Python logging
+          - pattern: logging.info(..., $OBJ.email, ...)
+          - pattern: logging.info(..., $OBJ.password, ...)
+          - pattern: logging.info(..., $OBJ.phone, ...)
+          - pattern: logging.info(..., $OBJ.ssn, ...)
+          - pattern: logging.debug(..., $OBJ.email, ...)
+          - pattern: logging.debug(..., $OBJ.password, ...)
+          - pattern: print(..., $OBJ.email, ...)
+          - pattern: print(..., $OBJ.password, ...)
+          - pattern: print(..., $OBJ.phone, ...)
+          - pattern: print(..., $OBJ.ssn, ...)
+          # Python f-string in log
+          - pattern: logging.$METHOD(f"...{$OBJ.email}...")
+          - pattern: logging.$METHOD(f"...{$OBJ.password}...")
+          - pattern: logging.$METHOD(f"...{$OBJ.phone}...")
+          - pattern: logging.$METHOD(f"...{$OBJ.ssn}...")
+          # JS/TS console.log
+          - pattern: console.log(..., $OBJ.email, ...)
+          - pattern: console.log(..., $OBJ.password, ...)
+          - pattern: console.log(..., $OBJ.phone, ...)
+          - pattern: console.log(..., $OBJ.ssn, ...)
+    message: >
+      PII field (email, password, phone, ssn) is being logged or printed.
+      This violates GDPR data minimisation. Mask or redact PII before logging.
+    severity: WARNING
+    languages: [python, javascript, typescript]
+    metadata:
+      cwe: "CWE-532"
+      category: compliance_gdpr
+
+  # -----------------------------------------------------------------------
+  # 2. Password / token in URL query parameter
+  # -----------------------------------------------------------------------
+  - id: va-password-in-url
+    patterns:
+      - pattern-either:
+          - pattern-regex: "[?&](password|token|secret|api_key)="
+    message: >
+      Sensitive data (password/token) is passed as a URL query parameter.
+      Query strings are logged in server access logs, browser history, and
+      referrer headers. Use POST body or headers instead.
+    severity: WARNING
+    languages: [generic]
+    metadata:
+      cwe: "CWE-598"
+      category: compliance_gdpr
+
+  # -----------------------------------------------------------------------
+  # 3. Plain HTTP URLs in config (not HTTPS)
+  # -----------------------------------------------------------------------
+  - id: va-no-https
+    patterns:
+      - pattern-regex: "http://[a-zA-Z0-9]"
+    message: >
+      Plain HTTP URL detected. All traffic should use HTTPS to prevent
+      man-in-the-middle attacks and comply with data-in-transit encryption
+      requirements under GDPR.
+    severity: WARNING
+    languages: [generic]
+    metadata:
+      cwe: "CWE-319"
+      category: compliance_gdpr
+
+  # -----------------------------------------------------------------------
+  # 4. Full stack trace leaked in HTTP response
+  # -----------------------------------------------------------------------
+  - id: va-error-leak
+    patterns:
+      - pattern-either:
+          - pattern: |
+              except $EX:
+                  ...
+                  return $FUNC(traceback.format_exc())
+          - pattern: |
+              except $EX as $E:
+                  ...
+                  return $FUNC(traceback.format_exc())
+          - pattern: |
+              except $EX as $E:
+                  ...
+                  return jsonify({"error": traceback.format_exc()})
+          - pattern: |
+              except $EX as $E:
+                  ...
+                  return Response(traceback.format_exc(), ...)
+    message: >
+      Full stack trace is returned in an HTTP response. This leaks internal
+      implementation details to attackers. Log the trace server-side and
+      return a generic error to the client.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: "CWE-209"
+      category: compliance_gdpr

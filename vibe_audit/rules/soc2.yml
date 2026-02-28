@@ -1,2 +1,90 @@
-# SOC2 compliance rules (P2)
-rules: []
+# SOC 2 compliance rules (P2)
+rules:
+  # -----------------------------------------------------------------------
+  # 1. Route without auth middleware
+  # -----------------------------------------------------------------------
+  - id: va-no-auth-middleware
+    patterns:
+      - pattern-either:
+          # Flask route missing login_required
+          - patterns:
+              - pattern: |
+                  @$APP.route(...)
+                  def $FUNC(...):
+                      ...
+              - pattern-not: |
+                  @$APP.route(...)
+                  @login_required
+                  def $FUNC(...):
+                      ...
+          # FastAPI route missing Depends(auth)
+          - patterns:
+              - pattern: |
+                  @$APP.get(...)
+                  def $FUNC(...):
+                      ...
+              - pattern-not: |
+                  @$APP.get(...)
+                  def $FUNC(..., $AUTH = Depends(...), ...):
+                      ...
+          - patterns:
+              - pattern: |
+                  @$APP.post(...)
+                  def $FUNC(...):
+                      ...
+              - pattern-not: |
+                  @$APP.post(...)
+                  def $FUNC(..., $AUTH = Depends(...), ...):
+                      ...
+    message: >
+      API route is missing authentication middleware (login_required /
+      Depends(auth)). All non-public endpoints must enforce authentication
+      per SOC 2 access-control requirements.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: "CWE-306"
+      category: compliance_soc2
+
+  # -----------------------------------------------------------------------
+  # 2. Hard-coded SECRET_KEY
+  # -----------------------------------------------------------------------
+  - id: va-hardcoded-secret-key
+    patterns:
+      - pattern-either:
+          - pattern: SECRET_KEY = "..."
+          - pattern: secret_key = "..."
+          - pattern: SECRET_KEY = '...'
+          - pattern: secret_key = '...'
+          - pattern: $APP.secret_key = "..."
+          - pattern: $APP.config["SECRET_KEY"] = "..."
+    message: >
+      SECRET_KEY is hard-coded as a string literal. Move it to an
+      environment variable or a secrets manager to comply with SOC 2
+      credential management controls.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: "CWE-798"
+      category: compliance_soc2
+
+  # -----------------------------------------------------------------------
+  # 3. DEBUG = True in production config
+  # -----------------------------------------------------------------------
+  - id: va-debug-in-prod
+    patterns:
+      - pattern-either:
+          - pattern: DEBUG = True
+          - pattern: debug = True
+          - pattern: $APP.debug = True
+          - pattern: $APP.run(..., debug=True, ...)
+          - pattern: $APP.config["DEBUG"] = True
+    message: >
+      DEBUG mode is enabled. Running with DEBUG=True in production exposes
+      detailed error pages, stack traces, and potentially sensitive config.
+      Set DEBUG=False for production deployments.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: "CWE-215"
+      category: compliance_soc2

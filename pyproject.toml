@@ -18,8 +18,14 @@ dependencies = [
 
 [project.optional-dependencies]
 llm = [
+    "google-genai>=1.0.0",
     "openai>=1.0",
-    "anthropic>=0.18",
+    "anthropic>=0.40",
+]
+scanning = [
+    "detect-secrets>=1.4",
+    "bandit>=1.7",
+    "semgrep>=1.50",
 ]
 dev = [
     "pytest>=7.0",

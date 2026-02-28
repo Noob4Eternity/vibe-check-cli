@@ -1,2 +1,109 @@
-# Prompt injection detection rules (P2)
-rules: []
+# Prompt-injection detection rules (P2)
+rules:
+  # -----------------------------------------------------------------------
+  # 1. User input interpolated into LLM prompt
+  # -----------------------------------------------------------------------
+  - id: va-user-input-to-llm
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CLIENT.chat.completions.create(
+                  ...,
+                  messages=[..., {"role": "user", "content": f"..."}, ...],
+                  ...
+              )
+          - pattern: |
+              $CLIENT.messages.create(
+                  ...,
+                  messages=[..., {"role": "user", "content": f"..."}, ...],
+                  ...
+              )
+          - pattern: |
+              openai.ChatCompletion.create(
+                  ...,
+                  messages=[..., {"role": "user", "content": f"..."}, ...],
+                  ...
+              )
+    message: >
+      User-controlled input is interpolated directly into an LLM prompt
+      via f-string. This enables prompt injection attacks. Sanitize or
+      template the input before sending to the model.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: "CWE-77"
+      category: prompt_injection
+
+  # -----------------------------------------------------------------------
+  # 2. LLM output passed to eval / exec
+  # -----------------------------------------------------------------------
+  - id: va-llm-output-to-eval
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RESP = $CLIENT.chat.completions.create(...)
+              ...
+              eval($RESP. ...)
+          - pattern: |
+              $RESP = $CLIENT.chat.completions.create(...)
+              ...
+              exec($RESP. ...)
+          - pattern: |
+              eval($RESULT)
+          - pattern: |
+              exec($RESULT)
+    message: >
+      LLM output is passed to eval()/exec(). An attacker who controls the
+      prompt can achieve arbitrary code execution. Parse structured output
+      instead (JSON, AST, etc.).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: "CWE-95"
+      category: prompt_injection
+
+  # -----------------------------------------------------------------------
+  # 3. LLM output passed to subprocess / os.system
+  # -----------------------------------------------------------------------
+  - id: va-llm-output-to-subprocess
+    patterns:
+      - pattern-either:
+          - pattern: |
+              subprocess.run($CMD, ..., shell=True, ...)
+          - pattern: |
+              subprocess.call($CMD, ..., shell=True, ...)
+          - pattern: |
+              subprocess.Popen($CMD, ..., shell=True, ...)
+          - pattern: |
+              os.system($CMD)
+    message: >
+      A command derived from LLM output is executed via subprocess or
+      os.system with shell=True. This can lead to command injection.
+      Validate and sanitize all LLM-generated commands.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: "CWE-78"
+      category: prompt_injection
+
+  # -----------------------------------------------------------------------
+  # 4. LLM response rendered in HTML without sanitization
+  # -----------------------------------------------------------------------
+  - id: va-missing-output-validation
+    patterns:
+      - pattern-either:
+          - pattern: |
+              <$EL dangerouslySetInnerHTML={{__html: $LLM_OUTPUT}} />
+          - pattern: |
+              $EL.innerHTML = $LLM_OUTPUT
+          - pattern: |
+              document.write($LLM_OUTPUT)
+    message: >
+      LLM output is rendered in the DOM without sanitization, enabling
+      XSS if the model returns malicious HTML/JS. Sanitize with DOMPurify
+      or escape before rendering.
+    severity: ERROR
+    languages: [javascript, typescript, jsx, tsx]
+    metadata:
+      cwe: "CWE-79"
+      category: prompt_injection
