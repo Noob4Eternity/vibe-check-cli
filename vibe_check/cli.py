@@ -85,8 +85,12 @@ def scan(
         console.print("[yellow]⚠ No analyzers available. Install analyzer dependencies or check implementations.[/yellow]")
 
     from vibe_check.core.orchestrator import Orchestrator
+    from vibe_check.utils.config import load_config
 
-    orchestrator = Orchestrator(analyzers=analyzers, config={"mode": mode})
+    config = load_config(repo_path)
+    config["mode"] = mode
+
+    orchestrator = Orchestrator(analyzers=analyzers, config=config)
     result = asyncio.run(orchestrator.run(repo_path))
 
     # Filter by severity if specified
@@ -124,8 +128,11 @@ def score(
 
     analyzers = _get_analyzers("full")
     from vibe_check.core.orchestrator import Orchestrator
+    from vibe_check.utils.config import load_config
 
-    orchestrator = Orchestrator(analyzers=analyzers)
+    config = load_config(repo_path)
+
+    orchestrator = Orchestrator(analyzers=analyzers, config=config)
     result = asyncio.run(orchestrator.run(repo_path))
 
     color = "green" if result.score >= 80 else ("yellow" if result.score >= 60 else "red")
