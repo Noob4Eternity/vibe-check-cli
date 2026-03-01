@@ -495,6 +495,15 @@ class ComplianceAnalyzer(BaseAnalyzer):
                 )
             )
 
+        # Hard cap: keep only the top 5 most severe LLM findings.
+        # The prompt asks for ≤5 but LLMs don't always obey.
+        # Sort by severity (most severe first) and truncate.
+        _SEV_ORDER = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2, Severity.INFO: 3}
+        findings.sort(key=lambda f: _SEV_ORDER.get(f.severity, 9))
+        if len(findings) > 5:
+            logger.info("LLM returned %d compliance findings, capping to 5", len(findings))
+            findings = findings[:5]
+
         return findings
 
 

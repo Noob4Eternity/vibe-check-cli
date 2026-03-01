@@ -47,10 +47,14 @@ def calculate_category_score(findings: List[Finding]) -> float:
     score = 100.0
     for i, f in enumerate(sorted(findings, key=lambda x: PENALTIES.get(x.severity, 0), reverse=True)):
         penalty = PENALTIES.get(f.severity, 0)
-        # Diminishing returns: after 3 findings, each extra finding
-        # has half the impact. This keeps the first findings meaningful
-        # but stops accumulation from hitting 0.
-        if i >= 3:
+        # Diminishing returns: prevents a flood of medium-severity
+        # findings from tanking a category to 0.
+        #   Findings 1-3: full penalty
+        #   Findings 4-5: half penalty
+        #   Findings 6+:  quarter penalty
+        if i >= 5:
+            penalty *= 0.25
+        elif i >= 3:
             penalty *= 0.5
         score -= penalty * f.confidence
     return max(score, 0.0)
