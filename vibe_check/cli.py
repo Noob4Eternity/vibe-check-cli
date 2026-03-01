@@ -37,6 +37,7 @@ def _get_analyzers(mode: str):
         ("vibe_check.analyzers.dependencies", "DependencyAnalyzer"),
         ("vibe_check.analyzers.hallucination", "HallucinationDetector"),
         ("vibe_check.analyzers.nextjs", "NextJSAnalyzer"),
+        ("vibe_check.analyzers.cost", "CostAnalyzer"),
         ("vibe_check.analyzers.compliance", "ComplianceAnalyzer"),
         ("vibe_check.analyzers.prompt_injection", "PromptInjectionAnalyzer"),
         ("vibe_check.analyzers.llm_summarizer", "LLMSummarizer"),
@@ -50,6 +51,7 @@ def _get_analyzers(mode: str):
             ("vibe_check.analyzers.dependencies", "DependencyAnalyzer"),
             ("vibe_check.analyzers.hallucination", "HallucinationDetector"),
             ("vibe_check.analyzers.nextjs", "NextJSAnalyzer"),
+            ("vibe_check.analyzers.cost", "CostAnalyzer"),
         ]
 
     for module_path, class_name in analyzer_classes:

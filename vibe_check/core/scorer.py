@@ -14,9 +14,10 @@ WEIGHTS: Dict[str, float] = {
     "sast": 0.15,
     "compliance": 0.15,
     "prompt_injection": 0.10,
-    "code_quality": 0.10,
-    "iac_security": 0.05,
-    "llm_review": 0.05,
+    "cost_efficiency": 0.10,
+    "code_quality": 0.05,
+    "iac_security": 0.025,
+    "llm_review": 0.025,
 }
 
 # ── Penalty per severity level ─────────────────────────────────────

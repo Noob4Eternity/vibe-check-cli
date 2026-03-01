@@ -40,6 +40,7 @@ class Category(Enum):
     LLM_REVIEW = "llm_review"
     VIBE_FINGERPRINT = "vibe_fingerprint"
     FRAMEWORK_SPECIFIC = "framework_specific"
+    COST_EFFICIENCY = "cost_efficiency"
 
 
 # Map categories to scoring groups
@@ -55,6 +56,7 @@ CATEGORY_GROUP = {
     Category.IAC_SECURITY: "iac_security",
     Category.LLM_REVIEW: "llm_review",
     Category.VIBE_FINGERPRINT: "code_quality",
+    Category.COST_EFFICIENCY: "cost_efficiency",
 }
 
 
