@@ -54,16 +54,18 @@ rules:
       category: compliance_gdpr
 
   # -----------------------------------------------------------------------
-  # 3. Plain HTTP URLs in config (not HTTPS)
+  # 3. Plain HTTP URLs to external hosts (not HTTPS)
+  #    Only matches URLs with a real domain (contains a dot).
+  #    Excludes: localhost, 127.x, 0.0.0.0, example.com, XML namespaces
   # -----------------------------------------------------------------------
   - id: va-no-https
     patterns:
-      - pattern-regex: "http://[a-zA-Z0-9]"
+      - pattern-regex: "http://(?!localhost)(?!127\\.)(?!0\\.0\\.0\\.0)(?!\\[::1\\])(?!example\\.)(?!schemas)(?!www\\.w3\\.org)(?!testserver)(?!test[:/])(?!mock[:/])(?!fake[:/])(?!dummy[:/])[a-zA-Z][a-zA-Z0-9.-]*\\.[a-zA-Z]{2,}"
     message: >
-      Plain HTTP URL detected. All traffic should use HTTPS to prevent
+      Plain HTTP URL to an external host detected. Use HTTPS to prevent
       man-in-the-middle attacks and comply with data-in-transit encryption
-      requirements under GDPR.
-    severity: WARNING
+      requirements under GDPR. (Localhost and test URLs are excluded.)
+    severity: INFO
     languages: [generic]
     metadata:
       cwe: "CWE-319"
