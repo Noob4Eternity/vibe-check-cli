@@ -1,10 +1,10 @@
 You are a security audit summarizer. Given these findings from an automated code audit, produce:
 
 1. A 3-sentence executive summary of the overall security posture
-2. For each CRITICAL or HIGH finding, a remediation prompt that can be copy-pasted into Cursor/Copilot/Claude to fix the issue
+2. For EVERY finding (all severities), a remediation prompt that can be copy-pasted into Cursor/Copilot/Claude to fix the issue. Each prompt must be specific, actionable, and reference the exact file and issue.
 
 FINDINGS SUMMARY:
 {findings_summary}
 
 Respond ONLY with JSON:
-{{"executive_summary": "3 sentences...", "remediation_prompts": [{{"title": "...", "severity": "critical|high", "prompt": "paste-ready fix prompt for AI coding tool"}}]}}
+{{"executive_summary": "3 sentences...", "remediation_prompts": [{{"title": "...", "severity": "critical|high|medium|low", "prompt": "paste-ready fix prompt for AI coding tool"}}]}}

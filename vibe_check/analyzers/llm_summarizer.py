@@ -3,7 +3,7 @@
 Takes all findings from all analyzers, compresses into ~500 tokens,
 sends ONE LLM call to generate:
   - 3-sentence executive summary
-  - Copy-paste remediation prompts for each critical/high finding
+  - Copy-paste remediation prompts for ALL findings (all severities)
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ class LLMSummarizer(BaseAnalyzer):
 
         Returns a list of Finding objects:
           - One finding with the executive summary
-          - One finding per remediation prompt for critical/high issues
+          - One finding per remediation prompt for all issues
         """
         if not self._llm or not all_findings:
             return []
@@ -84,7 +84,7 @@ class LLMSummarizer(BaseAnalyzer):
     def _compress_findings(self, findings: List[Finding]) -> str:
         """Compress findings into a structured summary targeting ~500 tokens.
 
-        Includes: counts by severity, counts by category, top critical/high details.
+        Includes: counts by severity, counts by category, details for ALL findings.
         """
         # Counts by severity
         sev_counts: dict[str, int] = {}
@@ -96,25 +96,26 @@ class LLMSummarizer(BaseAnalyzer):
         for f in findings:
             cat_counts[f.category.value] = cat_counts.get(f.category.value, 0) + 1
 
-        # Top critical/high findings (compact)
-        critical_high = [
-            f for f in findings
-            if f.severity in (Severity.CRITICAL, Severity.HIGH)
-        ]
+        # Sort findings: critical first, then high, medium, low, info
+        sev_order = {
+            Severity.CRITICAL: 0, Severity.HIGH: 1,
+            Severity.MEDIUM: 2, Severity.LOW: 3, Severity.INFO: 4,
+        }
+        sorted_findings = sorted(findings, key=lambda f: sev_order.get(f.severity, 9))
 
         lines = [
             f"Total: {len(findings)} findings",
             f"By severity: {', '.join(f'{k}={v}' for k, v in sorted(sev_counts.items()))}",
             f"By category: {', '.join(f'{k}={v}' for k, v in sorted(cat_counts.items()))}",
             "",
-            "Top critical/high issues:",
+            "All issues (by severity):",
         ]
 
-        # Include up to 8 critical/high findings, compact format
-        for f in critical_high[:8]:
+        # Include up to 15 findings across all severities
+        for f in sorted_findings[:15]:
             loc = f"{f.file}:{f.line}" if f.file and f.line else (f.file or "?")
             lines.append(
-                f"- [{f.severity.value.upper()}] {f.title} @ {loc}: {f.description[:100]}"
+                f"- [{f.severity.value.upper()}] {f.title} @ {loc}: {f.description[:120]}"
             )
 
         return "\n".join(lines)
