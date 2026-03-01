@@ -37,6 +37,7 @@ _CAT_EMOJI = {
     "sast": "🛡️",
     "compliance": "📋",
     "prompt_injection": "💉",
+    "cost_efficiency": "💰",
     "code_quality": "🧹",
     "iac_security": "☁️",
     "llm_review": "🤖",

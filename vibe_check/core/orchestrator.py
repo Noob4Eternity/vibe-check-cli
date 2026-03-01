@@ -129,6 +129,9 @@ class Orchestrator:
         for batch in results:
             all_findings.extend(batch)
 
+        # Track which analyzer names ran (for showing clean categories)
+        scanned_analyzers = [a.name for a in regular]
+
         # Phase 2 — run LLMSummarizer with the collected findings
         for summarizer in summarizers:
             try:
@@ -147,7 +150,7 @@ class Orchestrator:
         tokens_used = self._collect_token_usage()
 
         elapsed = time.perf_counter() - start
-        score, category_scores = calculate_composite(all_findings)
+        score, category_scores = calculate_composite(all_findings, scanned_analyzers)
         grade = get_grade(score)
         verdict = get_verdict(score)
 

@@ -61,12 +61,29 @@ def calculate_category_score(findings: List[Finding]) -> float:
     return max(score, 0.0)
 
 
-def calculate_composite(all_findings: List[Finding]) -> Tuple[float, Dict[str, float]]:
+def calculate_composite(
+    all_findings: List[Finding],
+    scanned_analyzers: List[str] | None = None,
+) -> Tuple[float, Dict[str, float]]:
     """Compute weighted composite score and per-category scores.
 
-    Categories with zero findings are excluded from the weighted average
-    so that unused analyzers don't inflate the score.
+    Categories whose analyzer ran but produced zero findings get 100.
+    Categories whose analyzer did NOT run are excluded entirely.
     """
+    # Map analyzer names to their scoring groups
+    _ANALYZER_TO_GROUP = {
+        "secrets": "secrets",
+        "dependencies": "dependencies",
+        "sast": "sast",
+        "compliance": "compliance",
+        "prompt_injection": "prompt_injection",
+        "cost_efficiency": "cost_efficiency",
+        "code_quality": "code_quality",
+        "iac_security": "iac_security",
+        "hallucination": "dependencies",
+        "nextjs": "sast",
+    }
+
     # Group findings by scoring group
     groups: Dict[str, List[Finding]] = {}
     for f in all_findings:
@@ -79,11 +96,16 @@ def calculate_composite(all_findings: List[Finding]) -> Tuple[float, Dict[str, f
         category_scores[group] = calculate_category_score(findings)
 
     # Give 100 to groups that were scanned but had no findings
-    # (we only include groups that have a weight and had findings)
+    if scanned_analyzers:
+        for analyzer_name in scanned_analyzers:
+            group = _ANALYZER_TO_GROUP.get(analyzer_name)
+            if group and group not in category_scores:
+                category_scores[group] = 100.0
+
     if not category_scores:
         return 100.0, {}
 
-    # Weighted average (only over groups that produced findings)
+    # Weighted average (only over groups present in category_scores)
     total_weight = sum(WEIGHTS.get(g, 0.05) for g in category_scores)
     if total_weight == 0:
         return 100.0, category_scores

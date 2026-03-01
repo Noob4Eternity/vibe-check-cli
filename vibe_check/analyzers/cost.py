@@ -68,6 +68,7 @@ _SKIP_DIRS = {
     "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
     "tests", "test", "fixtures", "__tests__", "__mocks__",
     "vibe_check",  # Don't scan our own tool code
+    ".next", ".nuxt", "out",  # Framework build outputs
 }
 
 
