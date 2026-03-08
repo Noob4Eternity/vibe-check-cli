@@ -75,6 +75,7 @@ def scan(
     exit_code: bool = typer.Option(False, "--exit-code", "-e", help="Exit 1 if score below threshold"),
     threshold: int = typer.Option(60, "--threshold", "-t", help="Score threshold for --exit-code"),
     severity: Optional[str] = typer.Option(None, "--severity", "-s", help="Filter: critical,high,medium,low,info"),
+    fail_on: Optional[str] = typer.Option(None, "--fail-on", help="Exit 1 if any finding is at or above this severity (critical|high|medium|low)"),
 ):
     """🔍 Run a full vibe-check scan on a repository."""
     repo_path = os.path.abspath(path)
@@ -114,6 +115,20 @@ def scan(
 
     if exit_code and result.score < threshold:
         raise typer.Exit(1)
+
+    # --fail-on: exit 1 if any finding is at or above the given severity
+    if fail_on:
+        from vibe_check.models.finding import Severity
+        sev_order = [Severity.INFO, Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL]
+        try:
+            min_sev = Severity(fail_on.lower())
+        except ValueError:
+            console.print(f"[red]Error:[/red] Invalid --fail-on severity '{fail_on}'. Use: critical, high, medium, low")
+            raise typer.Exit(1)
+        blocking = [f for f in result.findings if sev_order.index(f.severity) >= sev_order.index(min_sev)]
+        if blocking:
+            console.print(f"\n[red bold]❌ {len(blocking)} {fail_on.upper()}+ finding(s) detected — push blocked[/red bold]")
+            raise typer.Exit(1)
 
 
 @app.command()
@@ -174,13 +189,18 @@ def init():
         hook_path = hooks_dir / "pre-push"
         hook_path.write_text(
             "#!/bin/sh\n"
-            '# VibeCheck pre-push hook\n'
-            'vibe-check scan . --mode fast --severity critical,high --exit-code\n'
-            'if [ $? -ne 0 ]; then\n'
-            '  echo "❌ Push blocked by VibeCheck"\n'
-            '  exit 1\n'
-            'fi\n'
-            'echo "✅ VibeCheck passed"\n'
+            "# VibeCheck pre-push hook\n"
+            "# Blocks pushes on CRITICAL findings only (exposed secrets, hallucinated packages)\n"
+            "# To skip in an emergency: git push --no-verify\n"
+            "vibe-check scan . --mode fast --fail-on critical\n"
+            "if [ $? -ne 0 ]; then\n"
+            "  echo ''\n"
+            "  echo '\u274c Push blocked: CRITICAL security issue detected'\n"
+            "  echo '   Run: vibe-check scan . for full details'\n"
+            "  echo '   To skip (use carefully): git push --no-verify'\n"
+            "  exit 1\n"
+            "fi\n"
+            "echo '\u2705 VibeCheck passed'\n"
         )
         hook_path.chmod(0o755)
         console.print("[green]✅ Installed pre-push git hook[/green]")

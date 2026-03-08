@@ -230,7 +230,8 @@ class HallucinationDetector(BaseAnalyzer):
     async def analyze(
         self, repo_path: str, config: dict | None = None
     ) -> List[Finding]:
-        ast_map = build_ast_map(repo_path)
+        tracked = (config or {}).get("tracked_files")
+        ast_map = build_ast_map(repo_path, tracked_files=tracked)
         findings: List[Finding] = []
 
         for imp in ast_map.imports:

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vibe-check-cli"
-version = "0.2.4"
+version = "0.2.5"
 description = "🎵 Security auditor for vibe-coded repos — 95% deterministic, 25x cheaper than competitors"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,6 +31,12 @@ dev = [
 
 [project.scripts]
 vibe-check = "vibe_check.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/Noob4Eternity/vibe-check-cli"
+Repository = "https://github.com/Noob4Eternity/vibe-check-cli"
+Issues = "https://github.com/Noob4Eternity/vibe-check-cli/issues"
+Changelog = "https://github.com/Noob4Eternity/vibe-check-cli/releases"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vibe_check"]

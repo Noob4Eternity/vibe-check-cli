@@ -65,7 +65,5 @@ jobs:
               });
             }
 
-      - name: Check Score Threshold
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: vibe-check score . --exit-code --threshold 60
+      - name: Security Gate (Block on High+ Severity)
+        run: vibe-check scan . --mode fast --fail-on high

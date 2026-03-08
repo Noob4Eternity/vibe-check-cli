@@ -371,29 +371,40 @@ class DependencyAnalyzer(BaseAnalyzer):
         # 1. Discover manifest files and parse package names
         all_packages: List[Tuple[str, str, str]] = []  # (name, ecosystem, manifest_file)
         root = Path(repo_path)
+        tracked = (config or {}).get("tracked_files")
 
         for manifest_name, parser in MANIFEST_PARSERS.items():
             # Check root level
             root_manifest = root / manifest_name
             if root_manifest.exists():
+                rel_str = str(root_manifest.relative_to(root))
+                # Skip if not tracked by git
+                if tracked is not None and rel_str not in tracked:
+                    continue
                 try:
                     parsed = parser(root_manifest)
                     for pkg_name, ecosystem in parsed:
-                        all_packages.append((pkg_name, ecosystem, str(root_manifest.relative_to(root))))
+                        all_packages.append((pkg_name, ecosystem, rel_str))
                 except Exception as e:
                     logger.warning("Failed to parse %s: %s", root_manifest, e)
 
             # Monorepo support — also check subdirectories
             for candidate in root.rglob(manifest_name):
                 rel = candidate.relative_to(root)
-                if any(p.startswith(".") or p in ("node_modules", ".venv", "venv", "__pycache__") for p in rel.parts):
-                    continue
+                rel_str = str(rel)
+                # Skip if not tracked by git
+                if tracked is not None:
+                    if rel_str not in tracked:
+                        continue
+                else:
+                    if any(p.startswith(".") or p in ("node_modules", ".venv", "venv", "__pycache__") for p in rel.parts):
+                        continue
                 if candidate == root_manifest:
                     continue
                 try:
                     parsed = parser(candidate)
                     for pkg_name, ecosystem in parsed:
-                        all_packages.append((pkg_name, ecosystem, str(rel)))
+                        all_packages.append((pkg_name, ecosystem, rel_str))
                 except Exception as e:
                     logger.warning("Failed to parse %s: %s", candidate, e)
 

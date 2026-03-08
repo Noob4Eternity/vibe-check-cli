@@ -113,6 +113,19 @@ class Orchestrator:
         """
         start = time.perf_counter()
 
+        # ── Git-aware file filtering ────────────────────────────────
+        # Call git ls-files ONCE and share the set with all analyzers
+        # via config. Non-git repos (ZIP uploads) get None → fallback
+        # to each analyzer's built-in _SKIP_DIRS.
+        from vibe_check.utils.git_utils import is_git_repo, get_git_tracked_files
+        if is_git_repo(repo_path):
+            tracked = set(get_git_tracked_files(repo_path))
+            self.config["tracked_files"] = tracked
+            logger.info("Git repo detected — %d tracked files", len(tracked))
+        else:
+            self.config["tracked_files"] = None
+            logger.info("Non-git directory — using _SKIP_DIRS fallback")
+
         # Separate LLMSummarizer from regular analyzers
         from vibe_check.analyzers.llm_summarizer import LLMSummarizer
 

@@ -54,6 +54,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
         self, repo_path: str, config: dict | None = None
     ) -> List[Finding]:
         findings: List[Finding] = []
+        tracked = (config or {}).get("tracked_files")
 
         # Phase 1 — semgrep rules (deterministic)
         semgrep_findings = await self._run_semgrep(repo_path)
@@ -61,7 +62,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
         logger.info("Phase 1 (semgrep): %d findings", len(semgrep_findings))
 
         # Phase 2 — build AST summary
-        ast_summary = self._build_ast_summary(repo_path)
+        ast_summary = self._build_ast_summary(repo_path, tracked)
         logger.info("Phase 2 (AST summary): %d chars", len(ast_summary))
 
         # Phase 3 — LLM compliance reasoning
@@ -149,7 +150,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
 
     # ── Phase 2: AST Summary ────────────────────────────────────────
 
-    def _build_ast_summary(self, repo_path: str) -> str:
+    def _build_ast_summary(self, repo_path: str, tracked: set | None = None) -> str:
         """Build a structured summary of the repo with evidence for compliance.
 
         Extracts: routes with protection status, PII fields with file locations,
@@ -177,7 +178,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
         for py_file in root.rglob("*.py"):
             try:
                 rel = py_file.relative_to(root)
-                if _should_skip(rel):
+                if _should_skip(rel, tracked):
                     continue
                 source = py_file.read_text(encoding="utf-8", errors="ignore")
                 tree = ast.parse(source, filename=str(rel))
@@ -212,7 +213,7 @@ class ComplianceAnalyzer(BaseAnalyzer):
             for js_file in root.rglob(pattern):
                 try:
                     rel = js_file.relative_to(root)
-                    if _should_skip(rel):
+                    if _should_skip(rel, tracked):
                         continue
                     source = js_file.read_text(encoding="utf-8", errors="ignore")
                     self._extract_js(source, str(rel), routes, pii_fields, auth_decorators, logging_calls, frameworks)
@@ -507,14 +508,16 @@ class ComplianceAnalyzer(BaseAnalyzer):
         return findings
 
 
-def _should_skip(rel_path: Path) -> bool:
-    """Skip vendor, node_modules, venv, tests, fixtures, etc."""
+def _should_skip(rel_path: Path, tracked: set | None = None) -> bool:
+    """Skip files not tracked by git, or vendor/test/build directories."""
+    # If we have git tracked-files, skip anything not in it
+    if tracked is not None:
+        return str(rel_path) not in tracked
+    # Fallback: skip known directories
     parts = rel_path.parts
     skip_dirs = {
         "node_modules", ".venv", "venv", "__pycache__", ".git",
         "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
-        # Test / fixture directories — contain intentionally vulnerable
-        # code and fake PII that shouldn't trigger compliance findings
         "tests", "test", "fixtures", "__tests__", "__mocks__",
     }
     return bool(set(parts) & skip_dirs)

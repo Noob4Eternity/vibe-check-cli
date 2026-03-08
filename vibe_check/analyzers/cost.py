@@ -88,24 +88,25 @@ class CostAnalyzer(BaseAnalyzer):
     ) -> List[Finding]:
         findings: List[Finding] = []
         root = Path(repo_path)
+        tracked = (config or {}).get("tracked_files")
 
-        findings.extend(self._check_expensive_models(root))
-        findings.extend(self._check_overprovisioned(root))
-        findings.extend(self._check_redundant_calls(root))
-        findings.extend(self._check_bloated_deps(root))
+        findings.extend(self._check_expensive_models(root, tracked))
+        findings.extend(self._check_overprovisioned(root, tracked))
+        findings.extend(self._check_redundant_calls(root, tracked))
+        findings.extend(self._check_bloated_deps(root, tracked))
 
         logger.info("Cost analyzer: %d findings", len(findings))
         return findings
 
     # ── Check 1: Expensive LLM models ─────────────────────────────
 
-    def _check_expensive_models(self, root: Path) -> List[Finding]:
+    def _check_expensive_models(self, root: Path, tracked: set | None = None) -> List[Finding]:
         findings: List[Finding] = []
         patterns = ("*.py", "*.js", "*.ts", "*.jsx", "*.tsx")
 
         for pattern in patterns:
             for fpath in root.rglob(pattern):
-                if _should_skip(fpath, root):
+                if _should_skip(fpath, root, tracked):
                     continue
                 try:
                     content = fpath.read_text(encoding="utf-8", errors="ignore")
@@ -151,13 +152,13 @@ class CostAnalyzer(BaseAnalyzer):
 
     # ── Check 2: Over-provisioned resources ───────────────────────
 
-    def _check_overprovisioned(self, root: Path) -> List[Finding]:
+    def _check_overprovisioned(self, root: Path, tracked: set | None = None) -> List[Finding]:
         findings: List[Finding] = []
         config_patterns = ("*.yml", "*.yaml", "Dockerfile", "docker-compose*")
 
         for pattern in config_patterns:
             for fpath in root.rglob(pattern):
-                if _should_skip(fpath, root):
+                if _should_skip(fpath, root, tracked):
                     continue
                 try:
                     content = fpath.read_text(encoding="utf-8", errors="ignore")
@@ -254,7 +255,7 @@ class CostAnalyzer(BaseAnalyzer):
 
     # ── Check 3 & 4: Redundant API calls ──────────────────────────
 
-    def _check_redundant_calls(self, root: Path) -> List[Finding]:
+    def _check_redundant_calls(self, root: Path, tracked: set | None = None) -> List[Finding]:
         """Detect duplicate API calls to the same URL in a single file."""
         findings: List[Finding] = []
         patterns = ("*.py", "*.js", "*.ts", "*.jsx", "*.tsx")
@@ -268,7 +269,7 @@ class CostAnalyzer(BaseAnalyzer):
 
         for pattern in patterns:
             for fpath in root.rglob(pattern):
-                if _should_skip(fpath, root):
+                if _should_skip(fpath, root, tracked):
                     continue
                 try:
                     content = fpath.read_text(encoding="utf-8", errors="ignore")
@@ -314,12 +315,12 @@ class CostAnalyzer(BaseAnalyzer):
 
     # ── Check 5: Bloated dependencies ─────────────────────────────
 
-    def _check_bloated_deps(self, root: Path) -> List[Finding]:
+    def _check_bloated_deps(self, root: Path, tracked: set | None = None) -> List[Finding]:
         findings: List[Finding] = []
 
         # Check package.json
         for pjson in root.rglob("package.json"):
-            if _should_skip(pjson, root):
+            if _should_skip(pjson, root, tracked):
                 continue
             try:
                 content = pjson.read_text(encoding="utf-8", errors="ignore")
@@ -359,7 +360,7 @@ class CostAnalyzer(BaseAnalyzer):
 
         # Check requirements.txt / pyproject.toml
         for req_file in list(root.rglob("requirements*.txt")) + list(root.rglob("pyproject.toml")):
-            if _should_skip(req_file, root):
+            if _should_skip(req_file, root, tracked):
                 continue
             try:
                 content = req_file.read_text(encoding="utf-8", errors="ignore")
@@ -401,10 +402,18 @@ class CostAnalyzer(BaseAnalyzer):
         return findings
 
 
-def _should_skip(fpath: Path, root: Path) -> bool:
-    """Skip vendor, test, and build directories."""
+def _should_skip(fpath: Path, root: Path, tracked: set | None = None) -> bool:
+    """Skip files not tracked by git, or vendor/test/build directories."""
     try:
         rel = fpath.relative_to(root)
     except ValueError:
         return True
+    rel_str = str(rel)
+    # Always skip our own tool code (prevents self-referencing false positives)
+    if rel_str.startswith("vibe_check/"):
+        return True
+    # If we have a git tracked-files set, skip anything not in it
+    if tracked is not None:
+        return rel_str not in tracked
+    # Fallback: skip known vendor/build directories
     return bool(set(rel.parts) & _SKIP_DIRS)

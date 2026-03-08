@@ -400,10 +400,15 @@ _SKIP_DIRS = {
 }
 
 
-def build_ast_map(repo_path: str | Path) -> ASTMap:
+def build_ast_map(repo_path: str | Path, tracked_files: set | None = None) -> ASTMap:
     """Build a comprehensive AST map of the entire repository.
 
     Tries tree-sitter first, falls back to regex/stdlib extraction.
+
+    Args:
+        repo_path: Root of the repository to scan.
+        tracked_files: If provided, only scan files in this set (from git ls-files).
+                       Falls back to _SKIP_DIRS if None.
     """
     root = Path(repo_path)
     ast_map = ASTMap()
@@ -411,8 +416,20 @@ def build_ast_map(repo_path: str | Path) -> ASTMap:
     for file_path in root.rglob("*"):
         if file_path.is_dir():
             continue
-        if any(skip in file_path.parts for skip in _SKIP_DIRS):
+
+        # Git-aware filtering: skip untracked files
+        try:
+            rel = file_path.relative_to(root)
+        except ValueError:
             continue
+        rel_str = str(rel)
+
+        if tracked_files is not None:
+            if rel_str not in tracked_files:
+                continue
+        else:
+            if any(skip in file_path.parts for skip in _SKIP_DIRS):
+                continue
 
         language = detect_language(file_path)
         if language is None:

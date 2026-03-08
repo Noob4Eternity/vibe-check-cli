@@ -43,6 +43,7 @@ vibe-check scan [PATH] [OPTIONS]
 | `--exit-code`, `-e` | `false`    | Exit with code 1 if score is below threshold     |
 | `--threshold`, `-t` | `60`       | Score threshold for `--exit-code`                |
 | `--severity`, `-s`  | _(all)_    | Filter findings: `critical,high,medium,low,info` |
+| `--fail-on`         | _(none)_   | Exit 1 if any finding is at or above this severity (critical\|high\|medium\|low) |
 
 **Examples:**
 
@@ -61,6 +62,9 @@ vibe-check scan . --exit-code --threshold 70
 
 # Show only critical and high severity findings
 vibe-check scan . --severity critical,high
+
+# Block CI/push only if there are critical findings
+vibe-check scan . --fail-on critical
 ```
 
 ---
@@ -248,17 +252,15 @@ jobs:
               });
             }
 
-      - name: Check Score Threshold
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: vibe-check score . --exit-code --threshold 60
+      - name: Security Gate (Block on High+ Severity)
+        run: vibe-check scan . --mode fast --fail-on high
 ```
 
 **What this does:**
 
 1. Runs a full scan on every PR to `main`
 2. Posts the report as a PR comment (updates existing comment on re-push)
-3. Fails the check if score drops below 60
+3. Fails the check if there are any High or Critical vulnerabilities
 
 ### Minimal Workflow (score gate only)
 
@@ -276,9 +278,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install vibe-check-cli
-      - run: vibe-check scan . --exit-code --threshold 70
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - run: vibe-check scan . --mode fast --fail-on high
 ```
 
 ### Setup

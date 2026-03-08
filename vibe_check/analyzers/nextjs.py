@@ -84,6 +84,7 @@ class NextJSAnalyzer(BaseAnalyzer):
         self, repo_path: str, config: dict | None = None
     ) -> List[Finding]:
         root = Path(repo_path)
+        tracked = (config or {}).get("tracked_files")
 
         # Only run on Next.js projects
         if not self._is_nextjs_project(root):
@@ -92,16 +93,16 @@ class NextJSAnalyzer(BaseAnalyzer):
         findings: List[Finding] = []
 
         # 1. Check for NEXT_PUBLIC_ leaking secrets
-        findings.extend(self._check_env_exposure(root))
+        findings.extend(self._check_env_exposure(root, tracked))
 
         # 2. Check for unprotected API routes
-        findings.extend(self._check_unprotected_api_routes(root))
+        findings.extend(self._check_unprotected_api_routes(root, tracked))
 
         # 3. Check for unvalidated server actions
-        findings.extend(self._check_server_actions(root))
+        findings.extend(self._check_server_actions(root, tracked))
 
         # 4. Check for dangerouslySetInnerHTML
-        findings.extend(self._check_dangerous_html(root))
+        findings.extend(self._check_dangerous_html(root, tracked))
 
         logger.info("Next.js scan complete — %d finding(s)", len(findings))
         return findings
@@ -126,11 +127,14 @@ class NextJSAnalyzer(BaseAnalyzer):
                 pass
         return False
 
-    def _check_env_exposure(self, root: Path) -> List[Finding]:
+    def _check_env_exposure(self, root: Path, tracked: set | None = None) -> List[Finding]:
         """Check .env files for sensitive vars prefixed with NEXT_PUBLIC_."""
         findings = []
         env_files = list(root.glob(".env*"))
         for env_file in env_files:
+            rel_str = str(env_file.relative_to(root))
+            if tracked is not None and rel_str not in tracked:
+                continue
             try:
                 for i, line in enumerate(env_file.read_text(errors="ignore").splitlines(), 1):
                     line = line.strip()
@@ -166,7 +170,7 @@ class NextJSAnalyzer(BaseAnalyzer):
                 logger.debug("Failed to read %s: %s", env_file, e)
         return findings
 
-    def _check_unprotected_api_routes(self, root: Path) -> List[Finding]:
+    def _check_unprotected_api_routes(self, root: Path, tracked: set | None = None) -> List[Finding]:
         """Check API routes for missing authentication."""
         findings = []
 
@@ -186,6 +190,8 @@ class NextJSAnalyzer(BaseAnalyzer):
             for ext in ("*.js", "*.ts", "*.jsx", "*.tsx"):
                 for route_file in api_dir.rglob(ext):
                     rel_path = str(route_file.relative_to(root))
+                    if tracked is not None and rel_path not in tracked:
+                        continue
                     try:
                         content = route_file.read_text(errors="ignore")
 
@@ -224,7 +230,7 @@ class NextJSAnalyzer(BaseAnalyzer):
 
         return findings
 
-    def _check_server_actions(self, root: Path) -> List[Finding]:
+    def _check_server_actions(self, root: Path, tracked: set | None = None) -> List[Finding]:
         """Check server actions for missing input validation."""
         findings = []
 
@@ -236,6 +242,9 @@ class NextJSAnalyzer(BaseAnalyzer):
                 continue
             for ext in ("*.ts", "*.tsx", "*.js", "*.jsx"):
                 for file_path in src_dir.rglob(ext):
+                    rel_str = str(file_path.relative_to(root))
+                    if tracked is not None and rel_str not in tracked:
+                        continue
                     try:
                         content = file_path.read_text(errors="ignore")
 
@@ -274,15 +283,20 @@ class NextJSAnalyzer(BaseAnalyzer):
 
         return findings
 
-    def _check_dangerous_html(self, root: Path) -> List[Finding]:
+    def _check_dangerous_html(self, root: Path, tracked: set | None = None) -> List[Finding]:
         """Check for dangerouslySetInnerHTML usage."""
         findings = []
 
         for ext in ("*.jsx", "*.tsx", "*.js", "*.ts"):
             for file_path in root.rglob(ext):
                 rel = file_path.relative_to(root)
-                if any(p in str(rel) for p in ("node_modules", ".next", ".venv")):
-                    continue
+                rel_str = str(rel)
+                if tracked is not None:
+                    if rel_str not in tracked:
+                        continue
+                else:
+                    if any(p in rel_str for p in ("node_modules", ".next", ".venv")):
+                        continue
                 try:
                     content = file_path.read_text(errors="ignore")
                     for i, line in enumerate(content.splitlines(), 1):
