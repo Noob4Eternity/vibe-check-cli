@@ -177,12 +177,14 @@ async def _run_semgrep(repo_path: str, config: dict | None = None) -> List[Findi
         logger.warning("semgrep failed to launch: %s", exc)
         return []
 
-    # Semgrep exits with 1 when findings exist — that's fine.
-    if proc.returncode not in (0, 1):
+    # Semgrep exits with 1 when findings exist.
+    # It exits with 2 when there are non-fatal errors (e.g. unparseable files).
+    # Either way, if it produced JSON, we should just parse it.
+    if proc.returncode not in (0, 1, 2):
         logger.warning(
-            "semgrep exited with code %d: %s",
+            "semgrep exited with fatal code %d: %s",
             proc.returncode,
-            stderr.decode(errors="replace").strip(),
+            stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip(),
         )
 
     try:
